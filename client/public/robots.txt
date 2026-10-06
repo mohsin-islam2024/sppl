@@ -1,0 +1,12 @@
+# Hostnames allowed to index the site.
+User-agent: *
+Allow: /
+
+# Nothing behind admin is crawlable, and neither are the auth screens.
+Disallow: /admin
+Disallow: /admin/*
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+
+Sitemap: [sppl.netlify.app](https://sppl.netlify.app/sitemap.xml)

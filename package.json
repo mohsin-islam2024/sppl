@@ -1,0 +1,14 @@
+{
+  "name": "sppl",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Sotahar Poshchim Para Premier League - Official Website & Live Cricket Platform",
+  "workspaces": ["shared", "client", "server"],
+  "scripts": {
+    "dev:client": "npm run dev --workspace=client",
+    "dev:server": "npm run dev --workspace=server",
+    "build:client": "npm run build --workspace=client",
+    "start:server": "npm run start --workspace=server"
+  },
+  "engines": { "node": ">=20.0.0" }
+}

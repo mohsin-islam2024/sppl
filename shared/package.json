@@ -1,0 +1,14 @@
+{
+  "name": "@sppl/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./constants/*": "./constants/*.js",
+    "./enums": "./enums/index.js",
+    "./validation/*": "./validation/*.js",
+    "./utils/*": "./utils/*.js"
+  }
+}

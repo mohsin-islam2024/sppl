@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: sppl-api
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    # The repo root is the monorepo, so the build installs all workspaces.
+    buildCommand: npm install
+    startCommand: npm run start --workspace=server
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      # Set these in the Render dashboard — never commit real values.
+      - key: MONGODB_URI
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: SUPER_ADMIN_UID
+        sync: false

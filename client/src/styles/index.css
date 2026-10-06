@@ -1,0 +1,144 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Theme variables.
+ *
+ * Every surface and text colour in the app resolves through these variables, so
+ * switching `class="dark"` on <html> re-themes the entire site without touching a
+ * component. Values are space-separated RGB triples so Tailwind's <alpha-value>
+ * syntax keeps working.
+ */
+
+@layer base {
+  :root {
+    /* Light mode */
+    --surface-base: 248 250 252; /* slate-50  */
+    --surface-raised: 255 255 255; /* white    */
+    --surface-sunken: 241 245 249; /* slate-100 */
+    --surface-border: 226 232 240; /* slate-200 */
+
+    --content-primary: 15 23 42; /* slate-900 */
+    --content-secondary: 51 65 85; /* slate-700 */
+    --content-muted: 100 116 139; /* slate-500 */
+    --content-inverse: 248 250 252;
+
+    color-scheme: light;
+  }
+
+  .dark {
+    /* Dark mode — the default brand presentation, matching the SPPL crest field */
+    --surface-base: 10 16 32; /* navy-900  */
+    --surface-raised: 20 28 51; /* navy-700  */
+    --surface-sunken: 5 9 26; /* navy-950  */
+    --surface-border: 38 53 92; /* navy-500  */
+
+    --content-primary: 245 247 250;
+    --content-secondary: 203 213 225; /* slate-300 */
+    --content-muted: 148 163 184; /* slate-400 */
+    --content-inverse: 10 16 32;
+
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-surface-base text-content-primary font-sans antialiased;
+    /* Bangla needs a little more line height to sit comfortably */
+    line-height: 1.7;
+    min-height: 100dvh;
+  }
+
+  /* Latin text reads better slightly tighter than Bangla */
+  :lang(en) {
+    line-height: 1.6;
+  }
+
+  /*
+   * Visible focus for keyboard users only. Never remove the outline without a
+   * replacement — this is the difference between a usable and an unusable admin
+   * panel for anyone navigating by keyboard.
+   */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand ring-offset-2;
+    --tw-ring-offset-color: rgb(var(--surface-base));
+  }
+
+  /* Respect the user's motion preference across every animated component. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Bengali numerals are the default for Bangla pages; keep digits tabular in
+     scorecards so columns line up. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-content px-4 sm:px-6 lg:px-8;
+  }
+
+  .card {
+    @apply rounded-card border border-surface-border bg-surface-raised shadow-card;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-pill px-2.5 py-1 text-2xs font-semibold uppercase tracking-wide;
+  }
+
+  .badge-live {
+    @apply badge bg-live text-white;
+  }
+
+  .badge-upcoming {
+    @apply badge bg-brand/15 text-brand-light;
+  }
+
+  .badge-completed {
+    @apply badge bg-content-muted/15 text-content-muted;
+  }
+
+  /* Admin data tables: dense, readable, scrollable on small screens. */
+  .data-table {
+    @apply w-full border-collapse text-sm;
+  }
+
+  .data-table th {
+    @apply sticky top-0 z-10 bg-surface-sunken px-3 py-2 text-left font-semibold text-content-secondary;
+  }
+
+  .data-table td {
+    @apply border-t border-surface-border px-3 py-2 align-middle;
+  }
+}
+
+@layer utilities {
+  /* Hide scrollbars on horizontal chip rows without disabling scrolling. */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}

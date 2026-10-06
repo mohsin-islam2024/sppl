@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="bn" class="dark">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a1020" />
+
+    <!-- Branding: the SPPL crest is provided by the organizer. -->
+    <link rel="icon" type="image/png" href="/logos/sppl-logo.png" />
+    <link rel="apple-touch-icon" href="/icons/pwa-192.png" />
+
+    <!--
+      Bengali must load before first paint, otherwise the fallback font flashes and
+      every Bangla page visibly reflows. `display=swap` keeps text readable while
+      the webfont arrives.
+    -->
+    <link rel="preconnect" href="[fonts.googleapis.com](https://fonts.googleapis.com)" />
+    <link rel="preconnect" href="[fonts.gstatic.com](https://fonts.gstatic.com)" crossorigin />
+    <link
+        href="[fonts.googleapis.com](https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap)"
+        rel="stylesheet" />
+
+    <title>SPPL — Sotahar Poshchim Para Premier League</title>
+    <meta name="description"
+        content="Official website of the Sotahar Poshchim Para Premier League. Live scores, ball-by-ball commentary, fixtures, points table, teams and awards." />
+</head>
+
+<body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+</body>
+
+</html>
