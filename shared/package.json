@@ -6,9 +6,10 @@
   "main": "index.js",
   "exports": {
     ".": "./index.js",
-    "./constants/*": "./constants/*.js",
+    "./constants/*": "./constants/*",
     "./enums": "./enums/index.js",
-    "./validation/*": "./validation/*.js",
-    "./utils/*": "./utils/*.js"
+    "./validation/*": "./validation/*",
+    "./utils/*": "./utils/*"
   }
 }
+
