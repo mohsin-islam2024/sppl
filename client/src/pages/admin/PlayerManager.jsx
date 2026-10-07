@@ -52,7 +52,7 @@ const playerSchema = z.object({
   isCaptain: z.boolean().default(false),
   isViceCaptain: z.boolean().default(false),
   jerseyConfirmed: z.boolean().default(false),
-  order: z.coerce.number().int().min(0).max(99),
+  order: z.coerce.number().int().min(0).max(99).catch(0),
   active: z.boolean().default(true),
 });
 
@@ -136,7 +136,7 @@ export default function PlayerManager() {
       teamId: teamFilter || teams[0]?.id || '',
       role: 'BATTER',
       size: 'M',
-      order: players.length + 1,
+      order: 0,
       active: true,
       jerseyConfirmed: false,
     });

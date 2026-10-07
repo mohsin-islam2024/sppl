@@ -51,7 +51,7 @@ const STATUS_OPTIONS = [
 
 const matchSchema = z
   .object({
-    matchNo: z.coerce.number().int().min(1, 'Must be at least 1'),
+    matchNo: z.coerce.number().int().min(1, 'Must be at least 1').catch(1),
     stage: z.enum(['LEAGUE', 'SEMI_FINAL', 'FINAL']),
     teamAId: z.string().min(1, 'Choose the first team'),
     teamBId: z.string().min(1, 'Choose the second team'),
@@ -122,7 +122,9 @@ export default function MatchManager() {
   const openCreate = () => {
     setEditing(null);
     setBanner(null);
-    const nextNo = matches.length ? Math.max(...matches.map((m) => m.matchNo)) + 1 : 1;
+    const nextNo = matches.length
+  ? Math.max(...matches.map((m) => m.matchNo ?? 0)) + 1
+  : 1;
     reset({
       matchNo: nextNo,
       stage: 'LEAGUE',

@@ -47,7 +47,8 @@ const teamSchema = z.object({
   logoUrl: z.string().trim().optional(),
   captainPlayerId: z.string().optional(),
   viceCaptainPlayerId: z.string().optional(),
-  order: z.coerce.number().int().min(0).max(99),
+  order: z.coerce.number().int().min(0).max(99).catch(0),
+
   active: z.boolean().default(true),
 });
 
@@ -92,7 +93,7 @@ export default function TeamManager() {
     setBanner(null);
     reset({
       themeColor: '#1e6fd9',
-      order: teams.length + 1,
+      order: 0,
       active: true,
     });
     setFormOpen(true);
