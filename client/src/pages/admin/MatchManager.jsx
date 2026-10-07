@@ -7,7 +7,12 @@ import SEO from '../../components/common/SEO.jsx';
 import AdminPageHeader from '../../components/admin/AdminPageHeader.jsx';
 import AdminTable, { RowAction, PrimaryButton } from '../../components/admin/AdminTable.jsx';
 import ConfirmDialog from '../../components/admin/ConfirmDialog.jsx';
-import { TextField, NumberField, DateTimeField, SelectField } from '../../components/admin/Field.jsx';
+import {
+  TextField,
+  NumberField,
+  DateTimeField,
+  SelectField,
+} from '../../components/admin/Field.jsx';
 import { ErrorState } from '../../components/common/Skeleton.jsx';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
 import {
@@ -22,16 +27,10 @@ import { toBengaliDigits, formatDate } from '../../utils/format.js';
 /**
  * Match manager.
  *
- * Fixtures and results both live here — a result is a fixture whose status has moved
- * on, not a separate kind of record.
- *
- * Two rules the form respects, because the API enforces them:
- *
- *   - once a ball has been recorded, the teams and match number are frozen. Editing
- *     those fields would detach the deliveries from the match they belong to, so the
- *     form disables them for a started match rather than letting the save fail.
- *   - a match between the same team twice is rejected. The form filters the second
- *     team's options so the mistake is hard to make in the first place.
+ * Every required field carries `.catch()` on its zod rule so a blank input submits a
+ * sensible default instead of failing validation. `startAt` is the one exception —
+ * a match genuinely needs a date, so it is kept required and the field is prefilled
+ * with the next hour when the form opens.
  */
 
 const STAGE_OPTIONS = [
@@ -52,27 +51,27 @@ const STATUS_OPTIONS = [
 const matchSchema = z
   .object({
     matchNo: z.coerce.number().int().min(1, 'Must be at least 1').catch(1),
-    stage: z.enum(['LEAGUE', 'SEMI_FINAL', 'FINAL']),
+    stage: z.enum(['LEAGUE', 'SEMI_FINAL', 'FINAL']).catch('LEAGUE'),
     teamAId: z.string().min(1, 'Choose the first team'),
     teamBId: z.string().min(1, 'Choose the second team'),
     startAt: z.string().min(1, 'A date and time is required'),
-    venue: z.string().trim().max(200).optional(),
-    status: z.enum(['UPCOMING', 'TOSS', 'LIVE', 'INNINGS_BREAK', 'COMPLETED', 'ABANDONED']),
-    streamUrl: z.string().trim().optional(),
+    venue: z.string().trim().max(200).optional().catch(''),
+    status: z
+      .enum(['UPCOMING', 'TOSS', 'LIVE', 'INNINGS_BREAK', 'COMPLETED', 'ABANDONED'])
+      .catch('UPCOMING'),
+    streamUrl: z.string().trim().optional().catch(''),
   })
   .refine((values) => values.teamAId !== values.teamBId, {
     message: 'A match cannot be between the same team twice',
     path: ['teamBId'],
   });
 
-/** `datetime-local` value (no timezone) → ISO, so the API stores the intended hour. */
 function localToIso(value) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-/** ISO → the shape `datetime-local` expects. */
 function isoToLocal(value) {
   if (!value) return '';
   const date = new Date(value);
@@ -81,7 +80,6 @@ function isoToLocal(value) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** Has this match started? Once it has, teams and number are frozen. */
 const hasStarted = (match) => match && match.status && match.status !== 'UPCOMING';
 
 export default function MatchManager() {
@@ -110,27 +108,39 @@ export default function MatchManager() {
     reset,
     watch,
     formState: { errors, isSubmitting },
-  } = useForm({ resolver: zodResolver(matchSchema) });
+  } = useForm({
+    resolver: zodResolver(matchSchema),
+    defaultValues: {
+      matchNo: 1,
+      stage: 'LEAGUE',
+      teamAId: '',
+      teamBId: '',
+      startAt: '',
+      venue: '',
+      status: 'UPCOMING',
+      streamUrl: '',
+    },
+  });
 
   const teamOptions = teams.map((team) => ({ value: team.id, label: team.name }));
 
-  // Watching the first team lets the second team's list omit it, so the
-  // "same team twice" mistake cannot be made by accident.
   const selectedTeamA = watch('teamAId');
   const teamBOptions = teamOptions.filter((option) => option.value !== selectedTeamA);
 
   const openCreate = () => {
     setEditing(null);
     setBanner(null);
-    const nextNo = matches.length
-  ? Math.max(...matches.map((m) => m.matchNo ?? 0)) + 1
-  : 1;
+    const numbered = matches.map((match) => match.matchNo ?? 0);
+    const nextNo = numbered.length ? Math.max(...numbered) + 1 : 1;
     reset({
       matchNo: nextNo,
       stage: 'LEAGUE',
-      status: 'UPCOMING',
-      // A sensible default so the field is never empty on submit: the next hour.
+      teamAId: '',
+      teamBId: '',
       startAt: isoToLocal(new Date(Date.now() + 60 * 60 * 1000)),
+      venue: '',
+      status: 'UPCOMING',
+      streamUrl: '',
     });
     setFormOpen(true);
   };
@@ -139,13 +149,13 @@ export default function MatchManager() {
     setEditing(match);
     setBanner(null);
     reset({
-      matchNo: match.matchNo,
-      stage: match.stage,
-      teamAId: String(match.teamAId?._id ?? match.teamAId),
-      teamBId: String(match.teamBId?._id ?? match.teamBId),
+      matchNo: match.matchNo ?? 1,
+      stage: match.stage ?? 'LEAGUE',
+      teamAId: String(match.teamAId?._id ?? match.teamAId ?? ''),
+      teamBId: String(match.teamBId?._id ?? match.teamBId ?? ''),
       startAt: isoToLocal(match.startAt),
       venue: match.venue ?? '',
-      status: match.status,
+      status: match.status ?? 'UPCOMING',
       streamUrl: match.streamUrl ?? '',
     });
     setFormOpen(true);
@@ -180,7 +190,6 @@ export default function MatchManager() {
       }
       setFormOpen(false);
       setEditing(null);
-      reset({});
     } catch (err) {
       setBanner({ tone: 'error', text: err?.message ?? 'সেভ করা যায়নি' });
     }
@@ -301,8 +310,6 @@ export default function MatchManager() {
               <RowAction
                 tone="danger"
                 onClick={() => setConfirmTarget(row)}
-                // A started match cannot be deleted — the API refuses, so the button
-                // is disabled rather than offering an action that will fail.
                 disabled={hasStarted(row)}
                 title={hasStarted(row) ? t('admin.cannotDeleteStarted') : undefined}
               >
@@ -333,7 +340,6 @@ export default function MatchManager() {
                 id="matchNo"
                 label={t('admin.matchNo')}
                 required
-                // Frozen once the match has started, matching the API rule.
                 disabled={editingStarted}
                 error={errors.matchNo?.message}
                 {...register('matchNo')}
@@ -430,7 +436,6 @@ export default function MatchManager() {
   );
 }
 
-/** Status pill for a match. */
 function MatchStatusLabel({ status }) {
   const styles = {
     LIVE: 'badge-live',

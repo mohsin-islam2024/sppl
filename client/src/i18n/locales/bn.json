@@ -284,7 +284,23 @@
     "cannotDeleteStarted": "শুরু হওয়া ম্যাচ মোছা যাবে না",
     "matchStartedLocked": "এই ম্যাচ শুরু হয়ে গেছে। দল ও ম্যাচ নম্বর আর বদলানো যাবে না।",
     "deleteMatchTitle": "ম্যাচ মুছবেন?",
-    "deleteMatchWarning": "বল রেকর্ড থাকলে মুছতে দেবে না — বদলে পরিত্যক্ত করুন।"
+    "deleteMatchWarning": "বল রেকর্ড থাকলে মুছতে দেবে না — বদলে পরিত্যক্ত করুন।",
+    "openMenu": "মেনু খুলুন",
+    "managementTitle": "ব্যবস্থাপনা",
+    "managementBody": "নিচের যেকোনো অংশে গিয়ে তথ্য যোগ বা সম্পাদনা করুন।",
+    "dashboardSubtitle": "সোটাহার পশ্চিম পাড়া প্রিমিয়ার লিগ",
+    "account": "অ্যাকাউন্ট",
+    "roleLabel": "রোল",
+    "emailVerified": "ইমেইল যাচাই",
+    "accessLevel": "প্রবেশাধিকার",
+    "accessFull": "সম্পূর্ণ প্রবেশাধিকার",
+    "accessContent": "কনটেন্ট ও ম্যাচ",
+    "accessScoring": "শুধু স্কোরিং",
+    "accessMember": "সদস্য"
+
+
+
+
 
 
   },

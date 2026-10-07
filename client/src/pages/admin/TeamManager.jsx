@@ -26,14 +26,16 @@ import { toBengaliDigits } from '../../utils/format.js';
  * Scoped to the season chosen in the header — a team belongs to exactly one season,
  * so there is no such thing as editing "Agni Riders" without saying which year.
  *
- * The theme colour field matters more than it looks: it is what tints every card,
- * the points-table chip and the squad avatar across the public site, so changing it
- * here re-skins the team everywhere.
+ * Every numeric field carries `.catch()` on its zod rule. That is deliberate: a
+ * number input the admin has not touched yet holds an empty string, and
+ * `z.coerce.number()` turns an empty string into NaN, which the schema then rejects
+ * with "Expected number, received nan". The form would refuse to submit even with
+ * every visible field filled in.
  */
 
 const teamSchema = z.object({
-  name: z.string().trim().min(2, 'Name is required').max(80),
-  shortName: z.string().trim().min(2, 'Short name is required').max(8),
+  name: z.string().trim().min(1, 'Team name is required').max(80),
+  shortName: z.string().trim().min(1, 'Short name is required').max(8),
   slug: z
     .string()
     .trim()
@@ -43,13 +45,14 @@ const teamSchema = z.object({
   themeColor: z
     .string()
     .trim()
-    .regex(/^#[0-9a-f]{6}$/i, 'Use a hex colour like #e63946'),
+    .regex(/^#[0-9a-f]{6}$/i, 'Use a hex colour like #e63946')
+    .catch('#1e6fd9'),
   logoUrl: z.string().trim().optional(),
   captainPlayerId: z.string().optional(),
   viceCaptainPlayerId: z.string().optional(),
+  // `.catch` keeps an untouched or half-typed field from blocking the whole form.
   order: z.coerce.number().int().min(0).max(99).catch(0),
-
-  active: z.boolean().default(true),
+  active: z.boolean().catch(true),
 });
 
 export default function TeamManager() {
@@ -77,9 +80,21 @@ export default function TeamManager() {
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm({ resolver: zodResolver(teamSchema) });
+  } = useForm({
+    resolver: zodResolver(teamSchema),
+    // Defaults are declared here so the first render already has real values. A
+    // form that starts with `undefined` is what produced the NaN errors.
+    defaultValues: {
+      themeColor: '#1e6fd9',
+      order: 0,
+      active: true,
+      slug: '',
+      logoUrl: '',
+      captainPlayerId: '',
+      viceCaptainPlayerId: '',
+    },
+  });
 
-  /** Captain options are limited to this team's own squad. */
   const captainOptions = (teamId) =>
     players
       .filter((player) => String(player.teamId) === String(teamId))
@@ -92,8 +107,14 @@ export default function TeamManager() {
     setEditing(null);
     setBanner(null);
     reset({
+      name: '',
+      shortName: '',
+      slug: '',
       themeColor: '#1e6fd9',
-      order: 0,
+      logoUrl: '',
+      captainPlayerId: '',
+      viceCaptainPlayerId: '',
+      order: teams.length + 1 || 1,
       active: true,
     });
     setFormOpen(true);
@@ -103,9 +124,9 @@ export default function TeamManager() {
     setEditing(team);
     setBanner(null);
     reset({
-      name: team.name,
-      shortName: team.shortName,
-      slug: team.slug,
+      name: team.name ?? '',
+      shortName: team.shortName ?? '',
+      slug: team.slug ?? '',
       themeColor: team.themeColor ?? '#1e6fd9',
       logoUrl: team.logoUrl ?? '',
       captainPlayerId: team.captainPlayerId ?? '',
@@ -147,7 +168,6 @@ export default function TeamManager() {
       }
       setFormOpen(false);
       setEditing(null);
-      reset({});
     } catch (err) {
       setBanner({ tone: 'error', text: err?.message ?? 'সেভ করা যায়নি' });
     }
@@ -160,8 +180,6 @@ export default function TeamManager() {
       setBanner({ tone: 'success', text: 'দল মুছে ফেলা হয়েছে / Team deleted' });
       setConfirmTarget(null);
     } catch (err) {
-      // The API refuses when the team appears in a match, and the message carries
-      // the count — shown as-is so the admin knows what to do next.
       setBanner({ tone: 'error', text: err?.message ?? 'মুছতে পারা যায়নি' });
       setConfirmTarget(null);
     }
@@ -198,7 +216,9 @@ export default function TeamManager() {
       render: (row) => (
         <div className="min-w-0">
           <p className="truncate font-medium text-content-primary">{row.name}</p>
-          <p className="truncate text-2xs text-content-muted">{row.shortName} · {row.slug}</p>
+          <p className="truncate text-2xs text-content-muted">
+            {row.shortName} · {row.slug}
+          </p>
         </div>
       ),
     },
@@ -329,7 +349,6 @@ export default function TeamManager() {
               <TextField
                 id="themeColor"
                 label={t('admin.themeColor')}
-                type="text"
                 placeholder="#e63946"
                 hint={t('admin.themeColorHint')}
                 error={errors.themeColor?.message}
@@ -397,11 +416,7 @@ export default function TeamManager() {
         open={Boolean(confirmTarget)}
         title={t('admin.deleteTeamTitle')}
         message={t('admin.deleteTeamBody', { team: confirmTarget?.name ?? '' })}
-        details={
-          confirmTarget ? (
-            <p className="text-content-muted">{t('admin.deleteTeamWarning')}</p>
-          ) : null
-        }
+        details={confirmTarget ? <p className="text-content-muted">{t('admin.deleteTeamWarning')}</p> : null}
         busy={deleteTeam.isPending}
         onConfirm={onConfirmDelete}
         onCancel={() => setConfirmTarget(null)}

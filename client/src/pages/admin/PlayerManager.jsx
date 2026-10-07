@@ -8,7 +8,13 @@ import SEO from '../../components/common/SEO.jsx';
 import AdminPageHeader from '../../components/admin/AdminPageHeader.jsx';
 import AdminTable, { RowAction, PrimaryButton } from '../../components/admin/AdminTable.jsx';
 import ConfirmDialog from '../../components/admin/ConfirmDialog.jsx';
-import { TextField, NumberField, SelectField, CheckboxField, FieldShell } from '../../components/admin/Field.jsx';
+import {
+  TextField,
+  NumberField,
+  SelectField,
+  CheckboxField,
+  FieldShell,
+} from '../../components/admin/Field.jsx';
 import { ErrorState } from '../../components/common/Skeleton.jsx';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
 import {
@@ -23,37 +29,31 @@ import { toBengaliDigits } from '../../utils/format.js';
 /**
  * Player manager.
  *
- * The jersey fields are the reason this page exists in the shape it does. Two
- * things the organizer's sheet needs that a generic player form would not have:
- *
- *   - a KIDS size. "4 years" is not an adult S/M/L, and a kids shirt is ordered
- *     from a different chart. The size field accepts both, and flags which is which.
- *   - `jerseyConfirmed`, mirroring the ✅ marks on the sheet. An admin can enter a
- *     squad before the kit is ordered and see at a glance what is still provisional.
- *
- * Jersey numbers are validated unique per team by the API. The form shows only that
- * team's players in the captain selector, and the API's own error is surfaced as-is
- * rather than re-implemented here.
+ * Every numeric field carries `.catch()` on its zod rule. Without it an untouched
+ * number input submits an empty string, `z.coerce.number()` turns that into NaN,
+ * and the schema rejects the whole form with "Expected number, received nan" — which
+ * is what blocked the first player from being saved.
  */
 
 const ADULT_SIZES = ['S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+const KIDS_SIZES = ['2y', '4y', '5y', '7y', '8y', '9y', '10y', '11y', '12y'];
 
 const playerSchema = z.object({
   teamId: z.string().min(1, 'Choose a team'),
-  fullName: z.string().trim().min(2, 'Full name is required').max(120),
+  fullName: z.string().trim().min(1, 'Full name is required').max(120),
   jerseyName: z.string().trim().min(1, 'Jersey name is required').max(20),
-  jerseyNo: z.coerce.number().int().min(0, 'Cannot be negative').max(999),
-  size: z.string().trim().min(1, 'Size is required'),
-  role: z.enum(['BATTER', 'BOWLER', 'ALL_ROUNDER', 'WICKET_KEEPER']),
-  battingStyle: z.enum(['', 'RIGHT_HAND', 'LEFT_HAND']).optional(),
-  bowlingStyle: z.string().optional(),
-  ageYears: z.union([z.coerce.number().int().min(0).max(99), z.literal('')]).optional(),
-  photoUrl: z.string().trim().optional(),
-  isCaptain: z.boolean().default(false),
-  isViceCaptain: z.boolean().default(false),
-  jerseyConfirmed: z.boolean().default(false),
+  jerseyNo: z.coerce.number().int().min(0, 'Cannot be negative').max(999).catch(0),
+  size: z.string().trim().min(1, 'Size is required').catch('M'),
+  role: z.enum(['BATTER', 'BOWLER', 'ALL_ROUNDER', 'WICKET_KEEPER']).catch('BATTER'),
+  battingStyle: z.string().optional().catch(''),
+  bowlingStyle: z.string().optional().catch(''),
+  ageYears: z.coerce.number().int().min(0).max(99).optional().catch(undefined),
+  photoUrl: z.string().trim().optional().catch(''),
+  isCaptain: z.boolean().catch(false),
+  isViceCaptain: z.boolean().catch(false),
+  jerseyConfirmed: z.boolean().catch(false),
   order: z.coerce.number().int().min(0).max(99).catch(0),
-  active: z.boolean().default(true),
+  active: z.boolean().catch(true),
 });
 
 const ROLE_OPTIONS = [
@@ -79,7 +79,6 @@ const BOWLING_OPTIONS = [
   { value: 'LEFT_ARM_CHINAMAN', label: 'চায়নাম্যান' },
 ];
 
-/** Is this size a kids size? Mirrors the rule the API applies. */
 const isKidsSize = (size) => /^\d{1,2}y$/.test(String(size ?? ''));
 
 export default function PlayerManager() {
@@ -93,8 +92,8 @@ export default function PlayerManager() {
   const [confirmTarget, setConfirmTarget] = useState(null);
   const [banner, setBanner] = useState(null);
 
-  /** The team filter lives in the URL, so a link to one squad can be shared. */
   const teamFilter = searchParams.get('team') ?? '';
+
   const setTeamFilter = (value) => {
     setSearchParams(
       (previous) => {
@@ -122,7 +121,26 @@ export default function PlayerManager() {
     handleSubmit,
     reset,
     formState: { errors, isSubmitting },
-  } = useForm({ resolver: zodResolver(playerSchema) });
+  } = useForm({
+    resolver: zodResolver(playerSchema),
+    defaultValues: {
+      teamId: '',
+      fullName: '',
+      jerseyName: '',
+      jerseyNo: 0,
+      size: 'M',
+      role: 'BATTER',
+      battingStyle: '',
+      bowlingStyle: '',
+      ageYears: undefined,
+      photoUrl: '',
+      isCaptain: false,
+      isViceCaptain: false,
+      jerseyConfirmed: false,
+      order: 0,
+      active: true,
+    },
+  });
 
   const teamOptions = teams.map((team) => ({
     value: team.id,
@@ -134,11 +152,20 @@ export default function PlayerManager() {
     setBanner(null);
     reset({
       teamId: teamFilter || teams[0]?.id || '',
-      role: 'BATTER',
+      fullName: '',
+      jerseyName: '',
+      jerseyNo: 0,
       size: 'M',
-      order: 0,
-      active: true,
+      role: 'BATTER',
+      battingStyle: '',
+      bowlingStyle: '',
+      ageYears: undefined,
+      photoUrl: '',
+      isCaptain: false,
+      isViceCaptain: false,
       jerseyConfirmed: false,
+      order: players.length + 1 || 1,
+      active: true,
     });
     setFormOpen(true);
   };
@@ -148,14 +175,14 @@ export default function PlayerManager() {
     setBanner(null);
     reset({
       teamId: String(player.teamId?._id ?? player.teamId),
-      fullName: player.fullName,
-      jerseyName: player.jerseyName,
-      jerseyNo: player.jerseyNo,
-      size: player.size,
-      role: player.role,
+      fullName: player.fullName ?? '',
+      jerseyName: player.jerseyName ?? '',
+      jerseyNo: player.jerseyNo ?? 0,
+      size: player.size ?? 'M',
+      role: player.role ?? 'BATTER',
       battingStyle: player.battingStyle ?? '',
       bowlingStyle: player.bowlingStyle ?? '',
-      ageYears: player.ageYears ?? '',
+      ageYears: player.ageYears ?? undefined,
       photoUrl: player.photoUrl ?? '',
       isCaptain: Boolean(player.isCaptain),
       isViceCaptain: Boolean(player.isViceCaptain),
@@ -180,14 +207,11 @@ export default function PlayerManager() {
       jerseyName: values.jerseyName,
       jerseyNo: values.jerseyNo,
       size: values.size,
-      // Sent explicitly so the admin's intent is visible in the record, even though
-      // the API derives the same value from the size string.
       isKidsSize: isKidsSize(values.size),
       role: values.role,
-      // Empty strings become undefined so the API stores null rather than "".
       battingStyle: values.battingStyle || undefined,
       bowlingStyle: values.bowlingStyle || undefined,
-      ageYears: values.ageYears === '' ? undefined : values.ageYears,
+      ageYears: values.ageYears === '' || values.ageYears === undefined ? undefined : values.ageYears,
       photoUrl: values.photoUrl ?? '',
       isCaptain: values.isCaptain,
       isViceCaptain: values.isViceCaptain,
@@ -206,10 +230,7 @@ export default function PlayerManager() {
       }
       setFormOpen(false);
       setEditing(null);
-      reset({});
     } catch (err) {
-      // The duplicate-jersey error comes straight from the API and names the player
-      // already using that number — shown verbatim so the admin knows who to talk to.
       setBanner({ tone: 'error', text: err?.message ?? 'সেভ করা যায়নি' });
     }
   };
@@ -260,9 +281,7 @@ export default function PlayerManager() {
       key: 'teamId',
       label: t('nav.teams'),
       render: (row) => (
-        <span className="truncate text-sm text-content-secondary">
-          {row.teamId?.name ?? '—'}
-        </span>
+        <span className="truncate text-sm text-content-secondary">{row.teamId?.name ?? '—'}</span>
       ),
     },
     {
@@ -270,7 +289,9 @@ export default function PlayerManager() {
       label: t('team.size'),
       align: 'center',
       render: (row) => (
-        <span className={row.isKidsSize ? 'font-semibold text-gold-dark' : 'text-content-secondary'}>
+        <span
+          className={row.isKidsSize ? 'font-semibold text-gold-dark' : 'text-content-secondary'}
+        >
           {row.isKidsSize
             ? t('team.kidsSize', { size: toBengaliDigits(String(row.size).replace('y', '')) })
             : row.size}
@@ -312,7 +333,6 @@ export default function PlayerManager() {
         }
       />
 
-      {/* Team filter */}
       {teams.length > 0 && (
         <div className="mb-5 flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-content-secondary">
@@ -431,24 +451,16 @@ export default function PlayerManager() {
                   aria-describedby={errors.size ? 'size-error' : undefined}
                   {...register('size')}
                 />
-                {/* One datalist serving both adult and kids sizes: the organizer's
-                    sheet has both in the same column, and typing "4y" must be as
-                    easy as picking "M". */}
                 <datalist id="sppl-size-options">
                   {ADULT_SIZES.map((size) => (
                     <option key={size} value={size} />
                   ))}
-                  {['2y', '4y', '5y', '7y', '8y', '9y', '10y', '11y', '12y'].map((size) => (
+                  {KIDS_SIZES.map((size) => (
                     <option key={size} value={size} />
                   ))}
                 </datalist>
               </FieldShell>
-              <SelectField
-                id="role"
-                label={t('admin.role')}
-                options={ROLE_OPTIONS}
-                {...register('role')}
-              />
+              <SelectField id="role" label={t('admin.role')} options={ROLE_OPTIONS} {...register('role')} />
               <NumberField
                 id="order"
                 label={t('admin.displayOrder')}
@@ -488,11 +500,7 @@ export default function PlayerManager() {
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <CheckboxField
-                id="isCaptain"
-                label={t('team.captain')}
-                {...register('isCaptain')}
-              />
+              <CheckboxField id="isCaptain" label={t('team.captain')} {...register('isCaptain')} />
               <CheckboxField
                 id="isViceCaptain"
                 label={t('team.viceCaptain')}

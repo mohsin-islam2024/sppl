@@ -284,7 +284,22 @@
     "cannotDeleteStarted": "A started match cannot be deleted",
     "matchStartedLocked": "This match has started. Its teams and number can no longer be changed.",
     "deleteMatchTitle": "Delete this match?",
-    "deleteMatchWarning": "A match with recorded deliveries cannot be deleted — mark it abandoned instead."
+    "deleteMatchWarning": "A match with recorded deliveries cannot be deleted — mark it abandoned instead.",
+    "openMenu": "Open menu",
+    "managementTitle": "Management",
+    "managementBody": "Open any section below to add or edit data.",
+    "dashboardSubtitle": "Sotahar Poshchim Para Premier League",
+    "account": "Account",
+    "roleLabel": "Role",
+    "emailVerified": "Email verified",
+    "accessLevel": "Access level",
+    "accessFull": "Full access",
+    "accessContent": "Content + matches",
+    "accessScoring": "Scoring only",
+    "accessMember": "Member"
+
+
+
 
 
   },

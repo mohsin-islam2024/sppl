@@ -1,15 +1,14 @@
-import { useTranslation } from 'react-i18next';
+import { forwardRef } from 'react';
 
 /**
  * Form field primitives for the admin panel.
  *
- * These are thin wrappers over native inputs, not a form library. React Hook Form's
- * `register()` works on the real DOM element, so a wrapper has to forward the ref —
- * which these do via `{...props}` on the input itself.
- *
- * Every field renders a label, an optional hint, and an error slot wired with
- * `aria-describedby`, so a screen reader reads the error with the field rather than
- * announcing a floating message nobody connects to it.
+ * Every field forwards its ref to the real DOM element. React Hook Form's
+ * `register()` returns a ref that it needs attached to the input it is validating —
+ * a wrapper component that swallows the ref leaves the library unable to read the
+ * field, and the symptom is exactly what it looks like here: fields that visibly
+ * contain a value still failing validation with "Required" or
+ * "Expected number, received nan".
  */
 
 const inputClass =
@@ -45,11 +44,15 @@ export function FieldShell({ label, htmlFor, hint, error, required = false, chil
 }
 
 /** Text input. */
-export function TextField({ id, label, hint, error, required, type = 'text', ...props }) {
+export const TextField = forwardRef(function TextField(
+  { id, label, hint, error, required, type = 'text', ...props },
+  ref,
+) {
   return (
     <FieldShell label={label} htmlFor={id} hint={hint} error={error} required={required}>
       <input
         id={id}
+        ref={ref}
         type={type}
         className={inputClass}
         aria-invalid={Boolean(error)}
@@ -58,14 +61,18 @@ export function TextField({ id, label, hint, error, required, type = 'text', ...
       />
     </FieldShell>
   );
-}
+});
 
-/** Number input. Values arrive as strings from a form, so callers coerce. */
-export function NumberField({ id, label, hint, error, required, ...props }) {
+/** Number input. */
+export const NumberField = forwardRef(function NumberField(
+  { id, label, hint, error, required, ...props },
+  ref,
+) {
   return (
     <FieldShell label={label} htmlFor={id} hint={hint} error={error} required={required}>
       <input
         id={id}
+        ref={ref}
         type="number"
         inputMode="numeric"
         className={`${inputClass} tabular`}
@@ -75,21 +82,18 @@ export function NumberField({ id, label, hint, error, required, ...props }) {
       />
     </FieldShell>
   );
-}
+});
 
-/**
- * Date and time input.
- *
- * A native `datetime-local` rather than a picker library: it opens the phone's own
- * date wheel, costs no JavaScript, and is what this audience already knows how to
- * use. The value is a local string; the caller converts it to an ISO date before
- * sending, since the API stores UTC.
- */
-export function DateTimeField({ id, label, hint, error, required, ...props }) {
+/** Date and time input. */
+export const DateTimeField = forwardRef(function DateTimeField(
+  { id, label, hint, error, required, ...props },
+  ref,
+) {
   return (
     <FieldShell label={label} htmlFor={id} hint={hint} error={error} required={required}>
       <input
         id={id}
+        ref={ref}
         type="datetime-local"
         className={inputClass}
         aria-invalid={Boolean(error)}
@@ -98,23 +102,18 @@ export function DateTimeField({ id, label, hint, error, required, ...props }) {
       />
     </FieldShell>
   );
-}
+});
 
 /** Select. Options are `{ value, label }` pairs. */
-export function SelectField({
-  id,
-  label,
-  hint,
-  error,
-  required,
-  options = [],
-  placeholder,
-  ...props
-}) {
+export const SelectField = forwardRef(function SelectField(
+  { id, label, hint, error, required, options = [], placeholder, ...props },
+  ref,
+) {
   return (
     <FieldShell label={label} htmlFor={id} hint={hint} error={error} required={required}>
       <select
         id={id}
+        ref={ref}
         className={inputClass}
         aria-invalid={Boolean(error)}
         aria-describedby={error ? `${id}-error` : undefined}
@@ -129,15 +128,22 @@ export function SelectField({
       </select>
     </FieldShell>
   );
-}
+});
 
 /** Checkbox with its label on the same line. */
-export function CheckboxField({ id, label, hint, error, ...props }) {
+export const CheckboxField = forwardRef(function CheckboxField(
+  { id, label, hint, error, ...props },
+  ref,
+) {
   return (
     <div>
-      <label htmlFor={id} className="flex cursor-pointer items-center gap-2.5 text-sm text-content-secondary">
+      <label
+        htmlFor={id}
+        className="flex cursor-pointer items-center gap-2.5 text-sm text-content-secondary"
+      >
         <input
           id={id}
+          ref={ref}
           type="checkbox"
           className="h-4 w-4 rounded border-surface-border text-brand focus:ring-brand"
           {...props}
@@ -152,14 +158,18 @@ export function CheckboxField({ id, label, hint, error, ...props }) {
       )}
     </div>
   );
-}
+});
 
 /** Multi-line text. */
-export function TextAreaField({ id, label, hint, error, required, rows = 4, ...props }) {
+export const TextAreaField = forwardRef(function TextAreaField(
+  { id, label, hint, error, required, rows = 4, ...props },
+  ref,
+) {
   return (
     <FieldShell label={label} htmlFor={id} hint={hint} error={error} required={required}>
       <textarea
         id={id}
+        ref={ref}
         rows={rows}
         className={`${inputClass} resize-y`}
         aria-invalid={Boolean(error)}
@@ -168,6 +178,6 @@ export function TextAreaField({ id, label, hint, error, required, rows = 4, ...p
       />
     </FieldShell>
   );
-}
+});
 
 export default TextField;
