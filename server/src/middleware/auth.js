@@ -55,6 +55,40 @@ export const requireAuth = async (req, _res, next) => {
   }
 };
 
+
+
+/**
+ * Verify a Firebase token WITHOUT requiring an existing MongoDB user.
+ *
+ * Used only by the account-bootstrap route. Every other protected route needs
+ * `requireAuth`, because they act on a user who must already exist — but `sync`
+ * is the call that CREATES that user, so requiring one first is circular: the
+ * first login of every new account would fail with 401.
+ */
+export const requireAuthAllowNew = async (req, _res, next) => {
+  try {
+    const token = extractToken(req);
+    if (!token) throw ApiError.unauthorized('Missing bearer token');
+
+    let decoded;
+    try {
+      decoded = await verifyIdToken(token);
+    } catch (error) {
+      throw ApiError.unauthorized(`Invalid or expired token: ${error.code ?? 'auth/error'}`);
+    }
+
+    // The user may or may not exist yet — that is exactly what sync decides.
+    const user = await User.findOne({ firebaseUid: decoded.uid }).lean();
+
+    req.auth = decoded;
+    req.user = user ? { ...user, role: decoded.role ?? user.role } : null;
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+};
+
+
 /**
  * Attach the user when a token is present, but never reject anonymous traffic.
  * Used on public endpoints that behave better when they know who is asking

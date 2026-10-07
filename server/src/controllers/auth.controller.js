@@ -12,15 +12,14 @@ import ApiError from "../utils/ApiError.js";
  */
 export const sync = asyncHandler(async (req, res) => {
   const { name, photoUrl } = req.body ?? {};
-
   const user = await syncUser({
     decoded: req.auth,
     name,
     photoUrl,
   });
-
   res.status(200).json(ok(user));
 });
+
 
 /**
  * GET /api/v1/auth/me

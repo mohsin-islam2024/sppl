@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { sync, me, endSession } from "../controllers/auth.controller.js";
 import { requireAuth } from "../middleware/auth.js";
+import { requireAuthAllowNew } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
 import { writeLimiter } from "../middleware/rateLimit.js";
 import { syncUserSchema } from "@sppl/shared/validation/schemas.js";
@@ -14,10 +15,11 @@ const router = Router();
 router.post(
   "/sync",
   writeLimiter,
-  requireAuth,
+  requireAuthAllowNew,
   validate({ body: syncUserSchema }),
   sync,
 );
+
 router.get("/me", requireAuth, me);
 router.delete("/session", requireAuth, endSession);
 
