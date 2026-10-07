@@ -4,6 +4,7 @@ import SEO from '../../components/common/SEO.jsx';
 import MatchCard from '../../components/cricket/MatchCard.jsx';
 import PointsTable from '../../components/cricket/PointsTable.jsx';
 import TeamCard from '../../components/cricket/TeamCard.jsx';
+import SeasonSwitcher from '../../components/season/SeasonSwitcher.jsx';
 import {
   MatchCardSkeleton,
   TableSkeleton,
@@ -93,8 +94,13 @@ export default function Home() {
           </p>
 
           <h1 className="mt-3 max-w-3xl text-balance font-display text-3xl font-extrabold leading-tight text-content-primary sm:text-5xl">
-            {t('home.heroTitle')}
+            {season
+              ? `${t('home.welcomeTo')} ${season.shortName} ${t('common.seasonShort', {
+                  number: toBengaliDigits(season.seasonNo),
+                })}`
+              : t('home.heroTitle')}
           </h1>
+
 
           <p className="mt-4 max-w-2xl text-base text-content-secondary sm:text-lg">
             {t('home.heroSubtitle')}
@@ -114,6 +120,13 @@ export default function Home() {
               {t('home.viewPointsTable')}
             </Link>
           </div>
+                    {/* Season switcher — the home page has its own hero rather than a
+              PageHeader, so the switcher has to be placed here explicitly. Without
+              it a visitor has no way to look at the previous season. */}
+          <div className="mt-5">
+            <SeasonSwitcher />
+          </div>
+
 
           {countdown && (
             <p className="mt-6 inline-flex items-center gap-2 rounded-pill bg-gold/15 px-4 py-2 text-sm font-bold text-gold-dark">
