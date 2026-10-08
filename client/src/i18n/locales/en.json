@@ -64,7 +64,9 @@
     "viewPointsTable": "View points table",
     "statTeams": "Teams",
     "statPlayers": "Players",
-    "statMatches": "Matches"
+    "statMatches": "Matches",
+    "teamsLineDynamic": "{{teams}} teams. {{matches}} matches. One champion."
+
   },
   "season": {
     "switchLabel": "Choose a season",
@@ -343,6 +345,20 @@
     "confirmWicket": "Confirm wicket",
     "endInningsTitle": "End this innings?",
     "endInningsBody": "The innings will finish now.",
+    "bowler": "Bowler",
+    "change": "Change",
+    "chooseStriker": "Choose the striker",
+    "chooseNonStriker": "Choose the non-striker",
+    "chooseBowler": "Choose the bowler",
+    "sameBatterTwice": "The same player cannot be at both ends",
+    "needStriker": "Choose the incoming batter",
+    "needBowler": "Choose the bowler for the next over",
+    "needStrikerAndBowler": "Choose a striker and a bowler",
+    "needOpeningPlayers": "Choose the opening striker, non-striker and bowler",
+    "openingPlayers": "Opening players",
+    "openingPlayersHint": "Who bats, and who bowls the first over",
+    "noPlayersAvailable": "No players available",
+    "unavailable": "Unavailable",
     "wicketType": {
       "BOWLED": "Bowled",
       "CAUGHT": "Caught",

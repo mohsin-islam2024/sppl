@@ -15,21 +15,23 @@ import EmptyState from '../../components/common/EmptyState.jsx';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
 import { useSeasonSummary, useSeasonTeams, useSeasonRealtime } from '../../hooks/useSeason.js';
 import { usePointsTable } from '../../hooks/usePointsTable.js';
+import { usePublicLiveScore } from '../../hooks/useMatches.js';
 import { formatCountdown, toBengaliDigits } from '../../utils/format.js';
 
 /**
  * Home page.
  *
- * The layout follows what the two seasons actually are:
+ * Two realtime subscriptions run here, and both are needed:
  *
- *   Season 1 (COMPLETED, Jan 2026) — a finished tournament, so the page leads with
- *     what happened: the latest result, the final standings.
- *   Season 2 (UPCOMING, no date)  — nothing played and no date announced, so there is
- *     no countdown and no fixture to show. The page leads with the entrants and says
- *     plainly that the schedule is not fixed yet.
+ *   useSeasonRealtime  joins the SEASON room — standings and announcements
+ *   usePublicLiveScore joins the MATCH room — the ball-by-ball score
  *
- * Both render from the same components; only the ordering and the empty states differ.
- * The countdown hides itself when the season has no dates, which is Season 2's state.
+ * The socket server broadcasts deliveries to a match room, so a page that only
+ * joined the season room never saw the score change and had to be reloaded. That
+ * is the bug these two hooks together fix.
+ *
+ * The hero's team-and-match line renders only when the season has entrants: a fixed
+ * "4 teams, 6 matches" under a season with nobody entered is simply false.
  */
 export default function Home() {
   const { t, i18n } = useTranslation();
@@ -44,15 +46,18 @@ export default function Home() {
     isArchived,
   } = useActiveSeason();
 
-  // Join the season room so standings and results refresh on match day without a reload.
-  useSeasonRealtime(season?.id);
-
   const summaryQuery = useSeasonSummary(identifier);
   const pointsQuery = usePointsTable({ season: identifier, seasonId: season?.id });
   const teamsQuery = useSeasonTeams(identifier);
 
   const summary = summaryQuery.data;
   const standings = pointsQuery.data?.table ?? [];
+
+  // Season room: standings, announcements, season-level changes.
+  useSeasonRealtime(season?.id);
+
+  // Match room: the live score itself. The id only exists once the summary lands.
+  usePublicLiveScore(summary?.liveMatch?.id);
 
   const isLoading = seasonLoading || summaryQuery.isLoading;
 
@@ -101,10 +106,19 @@ export default function Home() {
               : t('home.heroTitle')}
           </h1>
 
-
           <p className="mt-4 max-w-2xl text-base text-content-secondary sm:text-lg">
             {t('home.heroSubtitle')}
           </p>
+
+          {/* Team and match counts, read from the season rather than hard-coded. */}
+          {summary?.stats?.teams > 0 && (
+            <p className="mt-2 text-sm font-semibold text-brand-light">
+              {t('home.teamsLineDynamic', {
+                teams: toBengaliDigits(summary.stats.teams),
+                matches: toBengaliDigits(summary.stats.matches),
+              })}
+            </p>
+          )}
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <Link
@@ -120,13 +134,10 @@ export default function Home() {
               {t('home.viewPointsTable')}
             </Link>
           </div>
-                    {/* Season switcher — the home page has its own hero rather than a
-              PageHeader, so the switcher has to be placed here explicitly. Without
-              it a visitor has no way to look at the previous season. */}
+
           <div className="mt-5">
             <SeasonSwitcher />
           </div>
-
 
           {countdown && (
             <p className="mt-6 inline-flex items-center gap-2 rounded-pill bg-gold/15 px-4 py-2 text-sm font-bold text-gold-dark">

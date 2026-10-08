@@ -1,16 +1,20 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
+import adminService from '../../services/adminService.js';
 import { toBengaliDigits } from '../../utils/format.js';
+import { cn } from '../../utils/cn.js';
 
 /**
- * Choose the two playing nines and who bats first.
+ * Choose the two playing nines, who bats first, and who opens.
  *
- * This is the gate before any ball can be recorded, and it is the one screen where a
- * mistake is expensive to undo: once deliveries exist the playing squads are frozen.
+ * The roster comes from a separate query rather than from `match.teamAId.players`,
+ * because a populated team carries only its name, crest and colour — not its squad.
+ * Reading `team.players` returned undefined and the form told the scorer no players
+ * existed, which is why a match could not be started at all.
  *
- * The rule sheet says nine players take the field, so exactly nine are required. The
- * wider squad is shown too, because the organizer's jersey sheet lists more names
- * than nine and the scorer needs to see who is available without leaving the page.
+ * The opening pair and first bowler are chosen HERE rather than on the scoring
+ * screen, because until they are set there is nothing to score.
  */
 export default function StartMatchForm({ match, onStart, onDone }) {
   const { t } = useTranslation();
@@ -22,20 +26,40 @@ export default function StartMatchForm({ match, onStart, onDone }) {
     return list;
   }, [match]);
 
+  /**
+   * The season's teams and players in one call.
+   *
+   * `selectors` is the admin endpoint built for exactly this — every team and every
+   * player of a season, keyed by team, ready for a form.
+   */
+  const selectorsQuery = useQuery({
+    queryKey: ['admin', 'selectors', match.seasonId?.slug ?? match.seasonId],
+    queryFn: () =>
+      adminService.listSelectors({ season: match.seasonId?.slug ?? match.seasonId }),
+    enabled: Boolean(match.seasonId),
+    staleTime: 2 * 60 * 1000,
+  });
+
+  const rosterByTeam = useMemo(() => {
+    const map = new Map();
+    for (const player of selectorsQuery.data?.players ?? []) {
+      const teamId = String(player.teamId?._id ?? player.teamId);
+      if (!map.has(teamId)) map.set(teamId, []);
+      map.get(teamId).push(player);
+    }
+    return map;
+  }, [selectorsQuery.data]);
+
+  const teamIdOf = (team) => team.id ?? team._id;
+
   const [battingTeamId, setBattingTeamId] = useState(teams[0]?.id ?? teams[0]?._id ?? '');
   const [squads, setSquads] = useState({});
+  const [strikerId, setStrikerId] = useState('');
+  const [nonStrikerId, setNonStrikerId] = useState('');
+  const [bowlerId, setBowlerId] = useState('');
   const [error, setError] = useState(null);
 
-  /**
-   * Prefer the squad already stored on the match — an admin may have set it from the
-   * fixture screen — and fall back to the team's full roster so the form opens with
-   * something usable rather than empty.
-   */
-  const rosterFor = (teamId) => {
-    const team = teams.find((entry) => String(entry.id ?? entry._id) === String(teamId));
-    return team?.players ?? [];
-  };
-
+  const rosterFor = (teamId) => rosterByTeam.get(String(teamId)) ?? [];
   const selectedFor = (teamId) => squads[teamId] ?? [];
 
   const togglePlayer = (teamId, playerId) => {
@@ -46,14 +70,34 @@ export default function StartMatchForm({ match, onStart, onDone }) {
       const next = exists ? current.filter((id) => id !== playerId) : [...current, playerId];
       return { ...previous, [teamId]: next };
     });
+
+    // Leaving the nine can orphan a chosen opening player — clear it.
+    if (strikerId === playerId) setStrikerId('');
+    if (nonStrikerId === playerId) setNonStrikerId('');
+    if (bowlerId === playerId) setBowlerId('');
   };
+
+  const bowlingTeam = teams.find((team) => String(teamIdOf(team)) !== String(battingTeamId));
+  const bowlingTeamKey = bowlingTeam ? teamIdOf(bowlingTeam) : '';
+
+  /** The chosen nine of the batting side — the only players who may open. */
+  const battingNine = rosterFor(battingTeamId).filter((player) =>
+    selectedFor(battingTeamId).includes(player.id ?? player._id),
+  );
+
+  /** The chosen nine of the bowling side. */
+  const bowlingNine = bowlingTeam
+    ? rosterFor(bowlingTeamKey).filter((player) =>
+        selectedFor(bowlingTeamKey).includes(player.id ?? player._id),
+      )
+    : [];
 
   const submit = async () => {
     setError(null);
 
     const payload = teams.map((team) => ({
-      teamId: team.id ?? team._id,
-      playerIds: selectedFor(team.id ?? team._id),
+      teamId: teamIdOf(team),
+      playerIds: selectedFor(teamIdOf(team)),
     }));
 
     const short = payload.find((squad) => squad.playerIds.length !== 9);
@@ -62,13 +106,34 @@ export default function StartMatchForm({ match, onStart, onDone }) {
       return;
     }
 
+    if (!strikerId || !nonStrikerId || !bowlerId) {
+      setError(t('scoring.needOpeningPlayers'));
+      return;
+    }
+
     try {
-      await onStart.mutateAsync({ playingSquads: payload, battingTeamId });
+      await onStart.mutateAsync({
+        playingSquads: payload,
+        battingTeamId,
+        strikerId,
+        nonStrikerId,
+        bowlerId,
+      });
       onDone?.();
     } catch (err) {
       setError(err?.message ?? t('common.error'));
     }
   };
+
+  const playerLabel = (player) => `#${player.jerseyNo} ${player.jerseyName || player.fullName}`;
+
+  if (selectorsQuery.isLoading) {
+    return (
+      <div className="mx-auto max-w-3xl">
+        <div className="card p-8 text-center text-sm text-content-muted">{t('common.loading')}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -87,19 +152,25 @@ export default function StartMatchForm({ match, onStart, onDone }) {
           </legend>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {teams.map((team) => {
-              const id = team.id ?? team._id;
+              const id = teamIdOf(team);
               const isChosen = String(battingTeamId) === String(id);
               return (
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setBattingTeamId(id)}
+                  onClick={() => {
+                    setBattingTeamId(id);
+                    setStrikerId('');
+                    setNonStrikerId('');
+                    setBowlerId('');
+                  }}
                   aria-pressed={isChosen}
-                  className={`rounded-xl border px-4 py-3 text-sm font-semibold transition ${
+                  className={cn(
+                    'rounded-xl border px-4 py-3 text-sm font-semibold transition',
                     isChosen
                       ? 'border-brand bg-brand/10 text-brand-light'
-                      : 'border-surface-border bg-surface-raised text-content-secondary hover:bg-surface-sunken'
-                  }`}
+                      : 'border-surface-border bg-surface-raised text-content-secondary hover:bg-surface-sunken',
+                  )}
                 >
                   {team.name}
                 </button>
@@ -120,7 +191,7 @@ export default function StartMatchForm({ match, onStart, onDone }) {
         {/* Squads */}
         <div className="mt-6 space-y-6">
           {teams.map((team) => {
-            const id = team.id ?? team._id;
+            const id = teamIdOf(team);
             const roster = rosterFor(id);
             const chosen = selectedFor(id);
 
@@ -129,20 +200,17 @@ export default function StartMatchForm({ match, onStart, onDone }) {
                 <div className="flex items-center justify-between gap-3">
                   <h2 className="text-sm font-bold text-content-primary">{team.name}</h2>
                   <span
-                    className={`tabular text-xs font-semibold ${
-                      chosen.length === 9 ? 'text-win' : 'text-gold-dark'
-                    }`}
+                    className={cn(
+                      'tabular text-xs font-semibold',
+                      chosen.length === 9 ? 'text-win' : 'text-gold-dark',
+                    )}
                   >
-                    {t('scoring.selectedCount', {
-                      count: toBengaliDigits(chosen.length),
-                    })}
+                    {t('scoring.selectedCount', { count: toBengaliDigits(chosen.length) })}
                   </span>
                 </div>
 
                 {roster.length === 0 ? (
-                  <p className="mt-2 text-sm text-content-muted">
-                    {t('scoring.noRoster')}
-                  </p>
+                  <p className="mt-2 text-sm text-content-muted">{t('scoring.noRoster')}</p>
                 ) : (
                   <div className="mt-2 grid gap-2 sm:grid-cols-2">
                     {roster.map((player) => {
@@ -154,16 +222,20 @@ export default function StartMatchForm({ match, onStart, onDone }) {
                           type="button"
                           onClick={() => togglePlayer(id, playerId)}
                           aria-pressed={isChosen}
-                          className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition ${
+                          className={cn(
+                            'flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition',
                             isChosen
                               ? 'border-brand bg-brand/10'
-                              : 'border-surface-border bg-surface-raised hover:bg-surface-sunken'
-                          }`}
+                              : 'border-surface-border bg-surface-raised hover:bg-surface-sunken',
+                          )}
                         >
                           <span
-                            className={`tabular flex h-7 w-7 shrink-0 items-center justify-center rounded text-2xs font-bold ${
-                              isChosen ? 'bg-brand text-white' : 'bg-surface-sunken text-content-muted'
-                            }`}
+                            className={cn(
+                              'tabular flex h-7 w-7 shrink-0 items-center justify-center rounded text-2xs font-bold',
+                              isChosen
+                                ? 'bg-brand text-white'
+                                : 'bg-surface-sunken text-content-muted',
+                            )}
                           >
                             {toBengaliDigits(player.jerseyNo)}
                           </span>
@@ -180,6 +252,81 @@ export default function StartMatchForm({ match, onStart, onDone }) {
           })}
         </div>
 
+        {/* Opening pair and first bowler */}
+        <fieldset className="mt-6 rounded-lg border border-surface-border p-4">
+          <legend className="px-2 text-sm font-semibold text-content-secondary">
+            {t('scoring.openingPlayers')}
+          </legend>
+          <p className="mt-1 text-2xs text-content-muted">{t('scoring.openingPlayersHint')}</p>
+
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-semibold text-content-secondary">
+                {t('scoring.striker')}
+              </span>
+              <select
+                value={strikerId}
+                onChange={(event) => setStrikerId(event.target.value)}
+                className="w-full rounded-lg border border-surface-border bg-surface-raised px-3 py-2.5 text-sm text-content-primary focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+              >
+                <option value="">{t('admin.noneSelected')}</option>
+                {battingNine.map((player) => {
+                  const id = player.id ?? player._id;
+                  if (String(id) === String(nonStrikerId)) return null;
+                  return (
+                    <option key={id} value={id}>
+                      {playerLabel(player)}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-semibold text-content-secondary">
+                {t('scoring.nonStriker')}
+              </span>
+              <select
+                value={nonStrikerId}
+                onChange={(event) => setNonStrikerId(event.target.value)}
+                className="w-full rounded-lg border border-surface-border bg-surface-raised px-3 py-2.5 text-sm text-content-primary focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+              >
+                <option value="">{t('admin.noneSelected')}</option>
+                {battingNine.map((player) => {
+                  const id = player.id ?? player._id;
+                  if (String(id) === String(strikerId)) return null;
+                  return (
+                    <option key={id} value={id}>
+                      {playerLabel(player)}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-semibold text-content-secondary">
+                {t('scoring.bowler')}
+              </span>
+              <select
+                value={bowlerId}
+                onChange={(event) => setBowlerId(event.target.value)}
+                className="w-full rounded-lg border border-surface-border bg-surface-raised px-3 py-2.5 text-sm text-content-primary focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/30"
+              >
+                <option value="">{t('admin.noneSelected')}</option>
+                {bowlingNine.map((player) => {
+                  const id = player.id ?? player._id;
+                  return (
+                    <option key={id} value={id}>
+                      {playerLabel(player)}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+          </div>
+        </fieldset>
+
         <div className="mt-6 flex flex-wrap gap-3">
           <button
             type="button"
@@ -192,9 +339,7 @@ export default function StartMatchForm({ match, onStart, onDone }) {
         </div>
       </div>
 
-      <p className="mt-4 text-center text-xs text-content-muted">
-        {t('scoring.startMatchNote')}
-      </p>
+      <p className="mt-4 text-center text-xs text-content-muted">{t('scoring.startMatchNote')}</p>
     </div>
   );
 }

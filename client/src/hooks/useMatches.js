@@ -72,13 +72,6 @@ export function useBallByBall(id, { innings, limit = 30 } = {}) {
 
 /**
  * Subscribe a match page to live updates.
- *
- * Three things happen on a new delivery:
- *   - the commentary list is PREPENDED from the event payload, so a new ball
- *     appears instantly without a refetch
- *   - the match detail and scorecard are INVALIDATED, because recomputing a
- *     scorecard from one ball client-side would duplicate the scoring engine
- *   - the match list is invalidated so fixtures show the new status
  */
 export function useMatchRealtime(matchId) {
   const queryClient = useQueryClient();
@@ -88,8 +81,6 @@ export function useMatchRealtime(matchId) {
     if (!socket || !matchId) return undefined;
 
     const onBall = (payload) => {
-      // Insert the delivery into the cached feed rather than refetching it. Twenty
-      // balls a minute during a scoring burst is a lot of round trips otherwise.
       queryClient.setQueriesData(
         { queryKey: ["matches", "balls", matchId] },
         (previous) => {
@@ -98,7 +89,6 @@ export function useMatchRealtime(matchId) {
             ? { ...payload.commentary, sequence: payload.ball?.sequence }
             : null;
           if (!entry) return previous;
-          // Guard against a duplicate: a reconnect can replay the last delivery.
           if (previous.items.some((item) => item.sequence === entry.sequence))
             return previous;
           return { ...previous, items: [entry, ...previous.items] };
@@ -115,7 +105,6 @@ export function useMatchRealtime(matchId) {
     };
 
     const onUndo = () => {
-      // An undo changes the past, so the feed cannot be patched — refetch it.
       queryClient.invalidateQueries({
         queryKey: ["matches", "balls", matchId],
       });
@@ -152,6 +141,64 @@ export function useMatchRealtime(matchId) {
       socket.off(SERVER_EVENTS.MATCH_COMPLETED, onCompleted);
     };
   }, [socket, matchId, queryClient]);
+
+  return { connected };
+}
+
+/**
+ * Subscribe the PUBLIC site to the season's live match.
+ *
+ * The socket server broadcasts each delivery to a MATCH room, not a season room. A
+ * page that only joins the season room therefore receives points-table updates and
+ * nothing else — which is why the score on the home page sat still until a reload.
+ *
+ * This joins the match room for whichever match is being played and invalidates the
+ * caches the score appears in: the home summary, the fixture list and the match
+ * itself.
+ *
+ * @param {string|null|undefined} liveMatchId the match currently being played
+ */
+export function usePublicLiveScore(liveMatchId) {
+  const queryClient = useQueryClient();
+  const { socket, connected } = useMatchSocket(liveMatchId);
+
+  useEffect(() => {
+    if (!socket || !liveMatchId) return undefined;
+
+    const refresh = () => {
+      queryClient.invalidateQueries({ queryKey: ["matches", "live"] });
+      queryClient.invalidateQueries({ queryKey: ["matches", "list"] });
+      queryClient.invalidateQueries({
+        queryKey: ["matches", "detail", liveMatchId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["matches", "scorecard", liveMatchId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["matches", "balls", liveMatchId],
+      });
+      queryClient.invalidateQueries({ queryKey: ["seasons", "summary"] });
+    };
+
+    const onCompleted = () => {
+      refresh();
+      queryClient.invalidateQueries({ queryKey: ["points-table"] });
+    };
+
+    socket.on(SERVER_EVENTS.MATCH_BALL, refresh);
+    socket.on(SERVER_EVENTS.MATCH_SCORE, refresh);
+    socket.on(SERVER_EVENTS.MATCH_STATUS, refresh);
+    socket.on(SERVER_EVENTS.MATCH_UNDO, refresh);
+    socket.on(SERVER_EVENTS.MATCH_COMPLETED, onCompleted);
+
+    return () => {
+      socket.off(SERVER_EVENTS.MATCH_BALL, refresh);
+      socket.off(SERVER_EVENTS.MATCH_SCORE, refresh);
+      socket.off(SERVER_EVENTS.MATCH_STATUS, refresh);
+      socket.off(SERVER_EVENTS.MATCH_UNDO, refresh);
+      socket.off(SERVER_EVENTS.MATCH_COMPLETED, onCompleted);
+    };
+  }, [socket, liveMatchId, queryClient]);
 
   return { connected };
 }

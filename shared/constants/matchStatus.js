@@ -45,6 +45,16 @@ export const WICKET_TYPE = Object.freeze({
 /** Only run out is possible on a free hit. */
 export const FREE_HIT_ALLOWED_DISMISSALS = Object.freeze([WICKET_TYPE.RUN_OUT]);
 
+/**
+ * Extras that arm a free hit for the NEXT delivery.
+ *
+ * Only a no-ball. A wide is not a free hit under the Laws, and the first version of
+ * the engine treated both the same — which showed a "Free hit" banner after every
+ * wide and let the scorer believe a dismissal restriction was in force that was not.
+ */
+export const FREE_HIT_GRANTING_EXTRAS = Object.freeze([EXTRA_TYPE.NO_BALL]);
+
+
 /** Match statuses in which the scoring engine accepts a new ball. */
 export const SCORABLE_STATUSES = Object.freeze([MATCH_STATUS.LIVE]);
 

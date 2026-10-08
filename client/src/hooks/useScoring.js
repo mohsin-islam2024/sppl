@@ -5,11 +5,12 @@ import api from "../config/axios.js";
  * Scoring hooks.
  *
  * Built directly on axios rather than a service module, because the scoring console
- * is the only consumer of these endpoints and the request shapes carry no reuse.
+ * is the only consumer of these endpoints.
  *
- * The ball mutation does NOT invalidate the match query. The response already
- * contains the new state, and refetching after every delivery would double the
- * traffic on a connection that has to survive a whole innings.
+ * The ball mutation does NOT diff the response into the cache by hand — it refetches
+ * the context. The console reads a lot of derived state (who is at the crease, who is
+ * bowling, the over count) and recomputing that on the client would duplicate the
+ * scoring engine.
  */
 
 export const scoringKeys = {
@@ -33,12 +34,10 @@ export function useScorableMatches(seasonId) {
 }
 
 /**
- * Everything the console needs to render itself: the match, both squads and who is
- * at the crease.
+ * Everything the console needs: the match, both squads, and who is at the crease.
  *
- * Polled every 45 seconds as a safety net. The scorer is the writer, so their own
- * copy is always current — the poll only matters if a second device (an admin
- * watching) has the console open.
+ * Polled every 45 seconds as a safety net — the scorer is the writer, but an admin
+ * watching from a second device would otherwise see a stale score.
  */
 export function useScoringContext(matchId) {
   return useQuery({
@@ -48,7 +47,7 @@ export function useScoringContext(matchId) {
       return data.data;
     },
     enabled: Boolean(matchId),
-    staleTime: 15 * 1000,
+    staleTime: 10 * 1000,
     refetchInterval: 45 * 1000,
   });
 }
@@ -69,10 +68,8 @@ export function useScoringSquad(matchId, teamId) {
 /**
  * Record one delivery.
  *
- * `scoreLimiter` on the server allows 600 per ten minutes, so a normal innings never
- * comes near the limit. The client does not retry automatically — a retried ball that
- * actually succeeded would be recorded twice, and the duplicate-sequence guard would
- * reject it with a confusing error. The scorer taps again deliberately instead.
+ * `retry: false` on purpose: a retried ball that actually succeeded would be recorded
+ * twice, and the duplicate-sequence guard would reject it with a confusing error.
  */
 export function useRecordBall(matchId) {
   const queryClient = useQueryClient();
@@ -83,10 +80,33 @@ export function useRecordBall(matchId) {
       return data.data;
     },
     onSuccess: () => {
-      // The payload is in the response, so the context query is refreshed rather
-      // than invalidated — one request instead of two.
       queryClient.invalidateQueries({ queryKey: scoringKeys.context(matchId) });
       queryClient.invalidateQueries({ queryKey: ["matches"] });
+    },
+    retry: false,
+  });
+}
+
+/**
+ * Set or change who is batting and bowling.
+ *
+ * Called three times over a match: when it starts, after a wicket to bring the next
+ * batter in, and between overs for the next bowler. Any field may be omitted.
+ */
+export function useSetPlayers(matchId) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ strikerId, nonStrikerId, bowlerId }) => {
+      const { data } = await api.post(`/scoring/${matchId}/players`, {
+        strikerId,
+        nonStrikerId,
+        bowlerId,
+      });
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: scoringKeys.context(matchId) });
     },
     retry: false,
   });
@@ -110,21 +130,30 @@ export function useUndoBall(matchId) {
   });
 }
 
-/** Start the match: choose the two squads and who bats first. */
+/** Start the match: choose the two squads, who bats first, and the opening pair. */
 export function useStartMatch(matchId) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ playingSquads, battingTeamId }) => {
+    mutationFn: async ({
+      playingSquads,
+      battingTeamId,
+      strikerId,
+      nonStrikerId,
+      bowlerId,
+    }) => {
       const { data } = await api.post(`/scoring/${matchId}/start`, {
         playingSquads,
         battingTeamId,
+        strikerId,
+        nonStrikerId,
+        bowlerId,
       });
       return data.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: scoringKeys.context(matchId) });
-      queryClient.invalidateQueries({ queryKey: scoringKeys.matches() });
+      queryClient.invalidateQueries({ queryKey: ["scoring"] });
       queryClient.invalidateQueries({ queryKey: ["matches"] });
     },
     retry: false,

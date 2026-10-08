@@ -12,16 +12,9 @@ import { MATCH_STATUS } from "@sppl/shared/constants/matchStatus.js";
  *
  * Every handler here runs behind `requireRole(SCORER, ADMIN, SUPER_ADMIN)` AND
  * `requireAssigned`, which checks that the scorer is the one assigned to this match.
- * A scorer may see every match in the admin panel; they may only write to theirs.
  */
 
-/**
- * GET /api/v1/scoring/matches
- *
- * The matches this scorer may actually score right now. An admin sees all of them;
- * a scorer sees only their own assignments, so the console opens on a match they can
- * work with rather than an error.
- */
+/** GET /api/v1/scoring/matches */
 export const listScorableMatches = asyncHandler(async (req, res) => {
   const filter = {
     status: {
@@ -35,8 +28,6 @@ export const listScorableMatches = asyncHandler(async (req, res) => {
 
   if (req.query.season) filter.seasonId = req.query.season;
 
-  // A scorer is not restricted to their own matches in the LIST — they need to see
-  // which match is next — but the write routes enforce the assignment.
   const matches = await Match.find(filter)
     .sort({ startAt: 1 })
     .populate("teamAId teamBId", "name shortName slug logoUrl themeColor")
@@ -49,8 +40,7 @@ export const listScorableMatches = asyncHandler(async (req, res) => {
  * GET /api/v1/scoring/:matchId
  *
  * Everything the scoring console needs in one payload: the match, both squads, and
- * who is at the crease. Assembled here rather than on the client so the console can
- * open with one request — a scorer standing at the boundary is on a phone.
+ * who is at the crease.
  */
 export const getScoringContext = asyncHandler(async (req, res) => {
   const match = await Match.findById(req.params.matchId)
@@ -62,39 +52,59 @@ export const getScoringContext = asyncHandler(async (req, res) => {
 
   const currentInnings = match.innings?.[match.currentInnings] ?? null;
 
-  // Who is at the crease, and who bowled the last over.
-  const striker =
-    currentInnings?.batting?.find((line) => line.isStriker) ?? null;
+  // The batting lines hold only ids, so the console needs the populated squad to
+  // resolve names. Sending the lines as they are lets the client join them itself
+  // without a second request.
+  const playingSquads = match.playingSquads ?? [];
+
+  const playerIndex = new Map();
+  for (const squad of playingSquads) {
+    for (const player of squad.playerIds ?? []) {
+      playerIndex.set(String(player._id ?? player.id), player);
+    }
+  }
+
+  const battingLines = (currentInnings?.batting ?? []).map((line) => ({
+    ...line,
+    player: playerIndex.get(String(line.playerId)) ?? null,
+  }));
+
+  const bowlingLines = (currentInnings?.bowling ?? []).map((line) => ({
+    ...line,
+    player: playerIndex.get(String(line.playerId)) ?? null,
+  }));
+
+  const striker = battingLines.find((line) => line.isStriker) ?? null;
   const nonStriker =
-    currentInnings?.batting?.find(
+    battingLines.find(
       (line) => line.hasBatted && !line.isOut && !line.isStriker,
     ) ?? null;
-  const lastBowlerId =
-    currentInnings?.bowling?.filter((line) => line.balls > 0)?.slice(-1)?.[0]
-      ?.playerId ?? null;
+  const bowler = bowlingLines.find((line) => line.isBowling) ?? null;
+
+  // The next batter is offered as a suggestion only — the scorer decides.
+  const nextBatter =
+    battingLines.find((line) => !line.hasBatted && !line.isOut)?.playerId ??
+    null;
 
   res.status(200).json(
     ok({
       match,
-      currentInnings,
-      striker: striker
-        ? { id: striker.playerId, runs: striker.runs, balls: striker.balls }
+      currentInnings: currentInnings
+        ? { ...currentInnings, batting: battingLines, bowling: bowlingLines }
         : null,
-      nonStriker: nonStriker ? { id: nonStriker.playerId } : null,
-      lastBowlerId,
+      striker,
+      nonStriker,
+      bowler,
+      nextBatterSuggestion: nextBatter,
       freeHitPending: Boolean(match.freeHitPending),
     }),
   );
 });
 
-/**
- * POST /api/v1/scoring/:matchId/start
- *
- * Move a match to LIVE and open the first innings from the chosen playing squads.
- * Until this happens the match is UPCOMING and no ball can be recorded.
- */
+/** POST /api/v1/scoring/:matchId/start */
 export const startMatch = asyncHandler(async (req, res) => {
-  const { playingSquads, battingTeamId } = req.body;
+  const { playingSquads, battingTeamId, strikerId, nonStrikerId, bowlerId } =
+    req.body;
 
   const match = await Match.findById(req.params.matchId);
   if (!match) throw ApiError.notFound("Match not found");
@@ -128,8 +138,6 @@ export const startMatch = asyncHandler(async (req, res) => {
     playerIds: squad.playerIds,
   }));
 
-  // Only build the first innings if it does not already exist — restarting a match
-  // that was accidentally marked completed must not wipe the recorded cricket.
   if (!match.innings?.length) {
     match.innings = [
       {
@@ -139,10 +147,10 @@ export const startMatch = asyncHandler(async (req, res) => {
         wickets: 0,
         balls: 0,
         extras: { wides: 0, noBalls: 0, byes: 0, legByes: 0 },
-        batting: battingTeam.playerIds.map((playerId, index) => ({
+        batting: battingTeam.playerIds.map((playerId) => ({
           playerId,
-          isStriker: index === 0,
-          hasBatted: index < 2,
+          isStriker: false,
+          hasBatted: false,
         })),
         bowling: bowlingTeam.playerIds.map((playerId) => ({ playerId })),
         isComplete: false,
@@ -157,16 +165,56 @@ export const startMatch = asyncHandler(async (req, res) => {
 
   await match.save();
 
-  res.status(200).json(ok(match.toJSON(), "Match started"));
+  // The opening pair is set through the same service call the mid-innings changes
+  // use, so there is one implementation of "who is at the crease".
+  if (strikerId || nonStrikerId || bowlerId) {
+    await scoringService.setPlayers({
+      matchId: match._id,
+      strikerId,
+      nonStrikerId,
+      bowlerId,
+    });
+  }
+
+  const fresh = await Match.findById(match._id);
+
+  res.status(200).json(ok(fresh.toJSON(), "Match started"));
 });
 
 /**
- * POST /api/v1/scoring/:matchId/ball
+ * POST /api/v1/scoring/:matchId/players
  *
- * Record one delivery. This is the hot path — a scorer taps it sixty times an innings.
- * The response carries everything the console needs to re-render, so the client never
- * has to refetch after a ball.
+ * Set or change the striker, non-striker and bowler at any point while the match is
+ * live. Called after a wicket to bring the next batter in, and between overs to name
+ * the next bowler. Any field may be omitted.
  */
+export const setPlayers = asyncHandler(async (req, res) => {
+  const { strikerId, nonStrikerId, bowlerId } = req.body;
+
+  if (!strikerId && !nonStrikerId && !bowlerId) {
+    throw ApiError.badRequest("Name at least one player to set");
+  }
+
+  const match = await scoringService.setPlayers({
+    matchId: req.params.matchId,
+    strikerId,
+    nonStrikerId,
+    bowlerId,
+  });
+
+  const io = req.app.get("io");
+  if (io) {
+    const { emitMatchStatus } = await import("../socket/index.js");
+    emitMatchStatus(io, {
+      matchId: String(req.params.matchId),
+      status: match.status,
+    });
+  }
+
+  res.status(200).json(ok(match.toJSON(), "Players set"));
+});
+
+/** POST /api/v1/scoring/:matchId/ball */
 export const recordBall = asyncHandler(async (req, res) => {
   const result = await scoringService.recordBall({
     matchId: req.params.matchId,
@@ -174,8 +222,6 @@ export const recordBall = asyncHandler(async (req, res) => {
     userId: req.user?._id,
   });
 
-  // Broadcast after the write succeeds, never before — a client that saw a ball that
-  // failed to save would show a score the database does not have.
   const io = req.app.get("io");
   if (io) {
     const payload = {
@@ -200,7 +246,6 @@ export const recordBall = asyncHandler(async (req, res) => {
       },
     };
 
-    // Imported lazily to keep this controller free of a hard socket import.
     const { emitBall, emitMatchStatus, emitMatchCompleted } =
       await import("../socket/index.js");
     emitBall(io, payload);
@@ -236,11 +281,7 @@ export const recordBall = asyncHandler(async (req, res) => {
   );
 });
 
-/**
- * POST /api/v1/scoring/:matchId/undo
- *
- * Remove the last delivery and rebuild the innings from what remains.
- */
+/** POST /api/v1/scoring/:matchId/undo */
 export const undoBall = asyncHandler(async (req, res) => {
   const result = await scoringService.undoLastBall({
     matchId: req.params.matchId,
@@ -258,12 +299,7 @@ export const undoBall = asyncHandler(async (req, res) => {
     .json(ok({ undone: result.undoneBall.sequence }, "Last ball undone"));
 });
 
-/**
- * POST /api/v1/scoring/:matchId/end-innings
- *
- * Declare the current innings over early — rain, or a walkover. The next ball would
- * have moved things along anyway; this makes it explicit.
- */
+/** POST /api/v1/scoring/:matchId/end-innings */
 export const endInnings = asyncHandler(async (req, res) => {
   const match = await Match.findById(req.params.matchId);
   if (!match) throw ApiError.notFound("Match not found");
@@ -298,13 +334,7 @@ export const endInnings = asyncHandler(async (req, res) => {
   res.status(200).json(ok(match.toJSON(), "Innings ended"));
 });
 
-/**
- * PATCH /api/v1/scoring/:matchId/result
- *
- * Set the winner, margin and man of the match by hand. Used when the scorer has to
- * override the computed result — an abandoned match, or a super over decided on the
- * field.
- */
+/** PATCH /api/v1/scoring/:matchId/result */
 export const setResult = asyncHandler(async (req, res) => {
   const { resultType, winnerTeamId, margin, motmPlayerId } = req.body;
 
@@ -328,7 +358,6 @@ export const setResult = asyncHandler(async (req, res) => {
 
   await match.save();
 
-  // The standings depend on the result, so they move with it.
   const season = await import("../services/seasonService.js").then((m) =>
     m.resolveSeason(match.seasonId),
   );
@@ -351,12 +380,7 @@ export const setResult = asyncHandler(async (req, res) => {
   res.status(200).json(ok(match.toJSON(), "Result saved"));
 });
 
-/**
- * GET /api/v1/scoring/:matchId/squad/:teamId
- *
- * The full squad of a team, so the console can offer the players who are NOT in the
- * playing nine — a substitute fielder or a late replacement.
- */
+/** GET /api/v1/scoring/:matchId/squad/:teamId */
 export const getSquad = asyncHandler(async (req, res) => {
   const players = await Player.find({ teamId: req.params.teamId, active: true })
     .sort({ order: 1, jerseyNo: 1 })
@@ -374,6 +398,7 @@ export default {
   listScorableMatches,
   getScoringContext,
   startMatch,
+  setPlayers,
   recordBall,
   undoBall,
   endInnings,

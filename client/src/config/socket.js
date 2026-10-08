@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 import { auth } from "./firebase.js";
 import { CLIENT_EVENTS } from "@sppl/shared/constants/socket.js";
@@ -7,13 +7,24 @@ import { CLIENT_EVENTS } from "@sppl/shared/constants/socket.js";
  * Socket.IO client.
  *
  * A single shared connection for the whole app: a match page and a points-table
- * widget on the same screen must not open two sockets, and the server broadcasts to
- * rooms rather than to individual sockets anyway.
+ * widget on the same screen must not open two sockets.
  *
- * The socket is created lazily on first use and torn down with the last subscriber.
+ * Three details here are load-bearing, and each was wrong in an earlier version:
+ *
+ *   1. The socket is created ONCE per hook instance with `useMemo`, not held in
+ *      state. Storing it in state made it `null` on the first render, so any hook
+ *      that depended on `socket` ran its effect against null and never joined its
+ *      room. That is why the public score only updated after a reload.
+ *
+ *   2. The socket is NEVER disconnected by a subscriber. React StrictMode mounts and
+ *      unmounts every effect twice in development, so a reference-counted disconnect
+ *      ran the count to zero on the first unmount and tore down a connection the
+ *      second mount still needed.
+ *
+ *   3. Joining a room is not a one-shot. A reconnect loses every room, so each
+ *      subscription re-joins on `connect`.
  */
 let socket = null;
-let subscriberCount = 0;
 
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL ?? window.location.origin;
 
@@ -23,14 +34,16 @@ function createSocket() {
     autoConnect: true,
     withCredentials: true,
     reconnection: true,
-    reconnectionAttempts: 10,
+    reconnectionAttempts: 20,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 8000,
   });
 
+  instance.on("connect", () => {
+    console.info("[socket] connected", instance.id);
+  });
+
   instance.on("connect_error", (error) => {
-    // Logged rather than surfaced: the page still works from cached REST data, and
-    // a toast on every reconnect attempt during a flaky match would be worse.
     console.warn("[socket] connect error", error.message);
   });
 
@@ -43,12 +56,25 @@ export function getSocket() {
   return socket;
 }
 
-export function releaseSocket() {
-  subscriberCount = Math.max(0, subscriberCount - 1);
-  if (subscriberCount === 0 && socket) {
-    socket.disconnect();
-    socket = null;
-  }
+/**
+ * Join a room now, and again after every reconnect.
+ *
+ * @returns {() => void} cleanup that leaves the room and drops the listener
+ */
+function subscribeToRoom({ joinEvent, leaveEvent, payload }) {
+  const instance = getSocket();
+
+  const join = () => instance.emit(joinEvent, payload);
+  const leave = () => instance.emit(leaveEvent, payload);
+
+  // A reconnect drops every room the server had us in, so join again on connect.
+  instance.on("connect", join);
+  join();
+
+  return () => {
+    instance.off("connect", join);
+    leave();
+  };
 }
 
 /**
@@ -56,35 +82,36 @@ export function releaseSocket() {
  */
 export function useMatchSocket(matchId) {
   const [connected, setConnected] = useState(false);
-  const [activeSocket, setActiveSocket] = useState(null);
+
+  // Created once, available on the first render — see note 1 above.
+  const socket = useMemo(() => getSocket(), []);
 
   useEffect(() => {
     if (!matchId) return undefined;
 
-    const instance = getSocket();
-    subscriberCount += 1;
-    setActiveSocket(instance);
+    setConnected(socket.connected);
 
     const onConnect = () => setConnected(true);
     const onDisconnect = () => setConnected(false);
 
-    instance.on("connect", onConnect);
-    instance.on("disconnect", onDisconnect);
-    if (instance.connected) setConnected(true);
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
 
-    instance.emit(CLIENT_EVENTS.JOIN_MATCH, { matchId });
+    const unsubscribe = subscribeToRoom({
+      joinEvent: CLIENT_EVENTS.JOIN_MATCH,
+      leaveEvent: CLIENT_EVENTS.LEAVE_MATCH,
+      payload: { matchId },
+    });
 
     return () => {
-      instance.emit(CLIENT_EVENTS.LEAVE_MATCH, { matchId });
-      instance.off("connect", onConnect);
-      instance.off("disconnect", onDisconnect);
-      releaseSocket();
-      setActiveSocket(null);
+      unsubscribe();
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
       setConnected(false);
     };
-  }, [matchId]);
+  }, [socket, matchId]);
 
-  return { socket: activeSocket, connected };
+  return { socket, connected };
 }
 
 /**
@@ -92,35 +119,35 @@ export function useMatchSocket(matchId) {
  */
 export function useSeasonSocket(seasonId) {
   const [connected, setConnected] = useState(false);
-  const [activeSocket, setActiveSocket] = useState(null);
+
+  const socket = useMemo(() => getSocket(), []);
 
   useEffect(() => {
     if (!seasonId) return undefined;
 
-    const instance = getSocket();
-    subscriberCount += 1;
-    setActiveSocket(instance);
+    setConnected(socket.connected);
 
     const onConnect = () => setConnected(true);
     const onDisconnect = () => setConnected(false);
 
-    instance.on("connect", onConnect);
-    instance.on("disconnect", onDisconnect);
-    if (instance.connected) setConnected(true);
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
 
-    instance.emit(CLIENT_EVENTS.JOIN_SEASON, { seasonId });
+    const unsubscribe = subscribeToRoom({
+      joinEvent: CLIENT_EVENTS.JOIN_SEASON,
+      leaveEvent: CLIENT_EVENTS.LEAVE_SEASON,
+      payload: { seasonId },
+    });
 
     return () => {
-      instance.emit(CLIENT_EVENTS.LEAVE_SEASON, { seasonId });
-      instance.off("connect", onConnect);
-      instance.off("disconnect", onDisconnect);
-      releaseSocket();
-      setActiveSocket(null);
+      unsubscribe();
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
       setConnected(false);
     };
-  }, [seasonId]);
+  }, [socket, seasonId]);
 
-  return { socket: activeSocket, connected };
+  return { socket, connected };
 }
 
 /** Id token of the current user, for a future authenticated socket handshake. */

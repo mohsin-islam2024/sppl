@@ -3,16 +3,17 @@ import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import SEO from '../../components/common/SEO.jsx';
 import MatchStatusBadge from '../../components/cricket/MatchStatusBadge.jsx';
-import { BallChip } from '../../components/cricket/BallByBall.jsx';
 import ConfirmDialog from '../../components/admin/ConfirmDialog.jsx';
 import StartMatchForm from '../../components/admin/StartMatchForm.jsx';
 import WicketSheet from '../../components/admin/WicketSheet.jsx';
+import PlayerPickerSheet from '../../components/admin/PlayerPickerSheet.jsx';
 import { ErrorState } from '../../components/common/Skeleton.jsx';
 import {
   useScoringContext,
   useRecordBall,
   useUndoBall,
   useStartMatch,
+  useSetPlayers,
   useEndInnings,
 } from '../../hooks/useScoring.js';
 import { formatOvers, toBengaliDigits } from '../../utils/format.js';
@@ -25,12 +26,15 @@ import { cn } from '../../utils/cn.js';
  *
  *   - the run buttons are the biggest thing on the page and sit at the BOTTOM, where
  *     a thumb reaches. Everything read-only is above them.
- *   - the last ball is always visible beside the undo button, so a mis-tap is caught
- *     immediately rather than three overs later.
- *   - undo is a single tap, not a menu. It is the most-used correction by a wide
- *     margin and burying it costs the scorer more time than any other control.
- *   - nothing is optimistic. The score shown is always the score the server
- *     confirmed, because a score that flickers back is worse than one that lags.
+ *   - the striker / non-striker / bowler cards are TAPPABLE. Those three slots change
+ *     many times in an innings — a batter comes in after every wicket and a bowler
+ *     changes every over — and routing each change through a menu would cost the
+ *     scorer more taps than any other control on the page.
+ *   - nothing is optimistic. The score shown is always the score the server confirmed.
+ *
+ * A wicket opens a second step: the dismissal sheet, then the incoming batter. The
+ * batting side cannot continue with an empty crease, and leaving it empty is how the
+ * very first version of this screen dead-ended.
  */
 export default function LiveScoringMatch() {
   const { t } = useTranslation();
@@ -39,28 +43,25 @@ export default function LiveScoringMatch() {
   const [banner, setBanner] = useState(null);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [wicketOpen, setWicketOpen] = useState(false);
+  const [picker, setPicker] = useState(null);
 
   const contextQuery = useScoringContext(matchId);
   const recordBall = useRecordBall(matchId);
   const undoBall = useUndoBall(matchId);
   const startMatch = useStartMatch(matchId);
+  const setPlayers = useSetPlayers(matchId);
   const endInnings = useEndInnings(matchId);
 
   const context = contextQuery.data;
   const match = context?.match;
   const innings = context?.currentInnings ?? null;
 
-  /**
-   * The batter on strike and the bowler, read from the innings state the API sent.
-   *
-   * `batting` and `bowling` lines hold only a player ID, so the display name is
-   * looked up from `playingSquads`, which the context is populated with.
-   */
+  /** Every player in both playing squads, keyed by id, so names resolve quickly. */
   const playerById = useMemo(() => {
     const map = new Map();
     for (const squad of match?.playingSquads ?? []) {
       for (const player of squad.playerIds ?? []) {
-        map.set(String(player.id ?? player._id), player);
+        map.set(String(player._id ?? player.id), player);
       }
     }
     return map;
@@ -71,15 +72,32 @@ export default function LiveScoringMatch() {
     innings?.batting?.find((line) => line.hasBatted && !line.isOut && !line.isStriker) ?? null;
   const bowlerLine = innings?.bowling?.find((line) => line.isBowling) ?? null;
 
-  const striker = strikerLine ? playerById.get(String(strikerLine.playerId)) : null;
-  const nonStriker = nonStrikerLine ? playerById.get(String(nonStrikerLine.playerId)) : null;
-  const bowler = bowlerLine ? playerById.get(String(bowlerLine.playerId)) : null;
+  /** Candidates for each slot, as settled by the innings state. */
+  const battingSquadIds = useMemo(() => {
+    const squad = match?.playingSquads?.find(
+      (entry) => String(entry.teamId) === String(innings?.battingTeamId),
+    );
+    return (squad?.playerIds ?? []).map((player) => player._id ?? player.id);
+  }, [match, innings]);
 
-  const battingSquad = match?.playingSquads?.find(
-    (squad) => String(squad.teamId) === String(innings?.battingTeamId),
-  );
-  const bowlingSquad = match?.playingSquads?.find(
-    (squad) => String(squad.teamId) === String(innings?.bowlingTeamId),
+  const bowlingSquadIds = useMemo(() => {
+    const squad = match?.playingSquads?.find(
+      (entry) => String(entry.teamId) === String(innings?.bowlingTeamId),
+    );
+    return (squad?.playerIds ?? []).map((player) => player._id ?? player.id);
+  }, [match, innings]);
+
+  /** Batters still able to bat: not out, and not already at the crease. */
+  const availableBatters = useMemo(() => {
+    return (innings?.batting ?? [])
+      .filter((line) => !line.isOut)
+      .map((line) => playerById.get(String(line.playerId)))
+      .filter(Boolean);
+  }, [innings, playerById]);
+
+  const availableBowlers = useMemo(
+    () => bowlingSquadIds.map((id) => playerById.get(String(id))).filter(Boolean),
+    [bowlingSquadIds, playerById],
   );
 
   if (contextQuery.isError) {
@@ -98,16 +116,12 @@ export default function LiveScoringMatch() {
     );
   }
 
-  // Not started yet: the two nines and who bats first have to be chosen.
+  // Not started yet: the two nines, who bats first, and the opening pair.
   if (match.status === 'UPCOMING' || match.status === 'TOSS') {
     return (
       <>
         <SEO title={t('admin.liveScoring')} noIndex />
-        <StartMatchForm
-          match={match}
-          onStart={startMatch}
-          onDone={() => contextQuery.refetch()}
-        />
+        <StartMatchForm match={match} onStart={startMatch} onDone={() => contextQuery.refetch()} />
       </>
     );
   }
@@ -115,7 +129,7 @@ export default function LiveScoringMatch() {
   const canScore = match.status === 'LIVE';
 
   const sendBall = async (spec) => {
-    if (!striker || !bowler) {
+    if (!strikerLine || !bowlerLine) {
       setBanner({ tone: 'error', text: t('scoring.selectPlayersFirst') });
       return;
     }
@@ -123,13 +137,18 @@ export default function LiveScoringMatch() {
     setBanner(null);
 
     try {
-      const result = await recordBall.mutateAsync({
+        const result = await recordBall.mutateAsync({
+        // The API's validation middleware runs on the request BODY, and the schema
+        // requires matchId even though the route already carries it in the URL.
+        // Omitting it made every delivery fail with "Validation failed".
+        matchId,
         innings: match.currentInnings,
-        batterId: striker.id ?? striker._id,
-        nonStrikerId: (nonStriker ?? striker).id ?? (nonStriker ?? striker)._id,
-        bowlerId: bowler.id ?? bowler._id,
+        batterId: strikerLine.playerId,
+        nonStrikerId: nonStrikerLine?.playerId ?? strikerLine.playerId,
+        bowlerId: bowlerLine.playerId,
         ...spec,
       });
+
 
       if (result.matchCompleted) {
         setBanner({ tone: 'success', text: t('scoring.matchCompleted') });
@@ -138,6 +157,17 @@ export default function LiveScoringMatch() {
       }
     } catch (error) {
       setBanner({ tone: 'error', text: error?.message ?? t('common.error') });
+    }
+  };
+
+  const applyPlayers = async (payload) => {
+    setBanner(null);
+    try {
+      await setPlayers.mutateAsync(payload);
+      setPicker(null);
+    } catch (error) {
+      setBanner({ tone: 'error', text: error?.message ?? t('common.error') });
+      setPicker(null);
     }
   };
 
@@ -153,17 +183,26 @@ export default function LiveScoringMatch() {
   const recentBalls = context.recentBalls ?? [];
   const lastBall = recentBalls[0] ?? null;
 
-  /** Runs needed, only meaningful while chasing. */
   const runsNeeded =
     match.currentInnings === 1 && innings?.target
       ? Math.max(0, innings.target - (innings.runs ?? 0))
       : null;
 
+  /**
+   * The next batter to bring in.
+   *
+   * The crease is empty after a wicket and the innings cannot continue without a
+   * striker, so this prompt is not optional — but it is a prompt rather than an
+   * automatic substitution, because the batting order is the scorer's call.
+   */
+  const strikerMissing = canScore && !strikerLine;
+  const bowlerMissing = canScore && !bowlerLine;
+
   return (
     <>
       <SEO title={t('admin.liveScoring')} noIndex />
 
-      <div className="mx-auto max-w-3xl pb-44">
+      <div className="mx-auto max-w-3xl pb-52">
         {/* Header: score, overs, target */}
         <header className="card p-4">
           <div className="flex items-center justify-between gap-3">
@@ -207,42 +246,65 @@ export default function LiveScoringMatch() {
               {t('scoring.freeHit')}
             </p>
           )}
-
-          {!canScore && (
-            <p className="mt-3 rounded-lg bg-brand/10 py-2 text-center text-sm font-semibold text-brand-light">
-              {t('scoring.notLive')}
-            </p>
-          )}
         </header>
 
-        {/* Who is in */}
+        {/* Who is in — each card opens a picker */}
         <div className="mt-3 grid grid-cols-2 gap-3">
           <PlayerSlot
             label={t('scoring.striker')}
-            name={striker?.jerseyName || striker?.fullName}
+            name={strikerLine?.player?.jerseyName || strikerLine?.player?.fullName}
             tone="brand"
-            detail={`${toBengaliDigits(strikerLine?.runs ?? 0)} (${toBengaliDigits(strikerLine?.balls ?? 0)})`}
+            detail={
+              strikerLine
+                ? `${toBengaliDigits(strikerLine.runs ?? 0)} (${toBengaliDigits(strikerLine.balls ?? 0)})`
+                : null
+            }
+            onClick={canScore ? () => setPicker('striker') : undefined}
+            actionLabel={t('scoring.change')}
           />
           <PlayerSlot
             label={t('scoring.nonStriker')}
-            name={nonStriker?.jerseyName || nonStriker?.fullName}
+            name={nonStrikerLine?.player?.jerseyName || nonStrikerLine?.player?.fullName}
             tone="muted"
-            detail={`${toBengaliDigits(nonStrikerLine?.runs ?? 0)} (${toBengaliDigits(nonStrikerLine?.balls ?? 0)})`}
+            detail={
+              nonStrikerLine
+                ? `${toBengaliDigits(nonStrikerLine.runs ?? 0)} (${toBengaliDigits(nonStrikerLine.balls ?? 0)})`
+                : null
+            }
+            onClick={canScore ? () => setPicker('nonStriker') : undefined}
+            actionLabel={t('scoring.change')}
           />
         </div>
 
         <div className="mt-3">
           <PlayerSlot
             label={t('scoring.bowler')}
-            name={bowler?.jerseyName || bowler?.fullName}
+            name={bowlerLine?.player?.jerseyName || bowlerLine?.player?.fullName}
             tone="gold"
-            detail={t('scoring.bowlerFigures', {
-              overs: toBengaliDigits(formatOvers(bowlerLine?.balls ?? 0)),
-              runs: toBengaliDigits(bowlerLine?.runs ?? 0),
-              wickets: toBengaliDigits(bowlerLine?.wickets ?? 0),
-            })}
+            detail={
+              bowlerLine
+                ? t('scoring.bowlerFigures', {
+                    overs: toBengaliDigits(formatOvers(bowlerLine.balls ?? 0)),
+                    runs: toBengaliDigits(bowlerLine.runs ?? 0),
+                    wickets: toBengaliDigits(bowlerLine.wickets ?? 0),
+                  })
+                : null
+            }
+            onClick={canScore ? () => setPicker('bowler') : undefined}
+            actionLabel={t('scoring.change')}
           />
         </div>
+
+        {/* Something has to be chosen before the next ball can be scored */}
+        {(strikerMissing || bowlerMissing) && (
+          <div className="mt-4 rounded-lg border border-live/30 bg-live/10 px-3.5 py-3 text-sm text-live-light">
+            {strikerMissing && bowlerMissing
+              ? t('scoring.needStrikerAndBowler')
+              : strikerMissing
+                ? t('scoring.needStriker')
+                : t('scoring.needBowler')}
+          </div>
+        )}
 
         {banner && (
           <div
@@ -258,7 +320,7 @@ export default function LiveScoringMatch() {
           </div>
         )}
 
-        {/* Recent balls, newest first */}
+        {/* Recent balls */}
         {recentBalls.length > 0 && (
           <section className="mt-4 card p-4">
             <h2 className="text-2xs font-semibold uppercase tracking-widest text-content-muted">
@@ -270,7 +332,6 @@ export default function LiveScoringMatch() {
                   <span className="tabular w-10 shrink-0 text-2xs text-content-muted">
                     {toBengaliDigits(ball.displayOver)}
                   </span>
-                  <BallChip ball={ball} />
                   <span className="min-w-0 flex-1 truncate text-xs text-content-secondary">
                     {ball.commentaryBn || ball.commentaryEn}
                   </span>
@@ -300,8 +361,6 @@ export default function LiveScoringMatch() {
               </button>
             </div>
 
-            {/* Runs. The four and the six are coloured because they are what a scorer
-                checks for first when reading back a ball. */}
             <div className="grid grid-cols-6 gap-2">
               {[0, 1, 2, 3, 4, 6].map((runs) => (
                 <button
@@ -313,7 +372,9 @@ export default function LiveScoringMatch() {
                     'rounded-xl py-4 font-display text-xl font-extrabold transition disabled:opacity-40',
                     runs === 4 && 'bg-brand text-white hover:bg-brand-dark',
                     runs === 6 && 'bg-gold text-navy-900 hover:bg-gold-light',
-                    runs !== 4 && runs !== 6 && 'bg-surface-raised text-content-primary hover:bg-surface-sunken',
+                    runs !== 4 &&
+                      runs !== 6 &&
+                      'bg-surface-raised text-content-primary hover:bg-surface-sunken',
                   )}
                 >
                   {toBengaliDigits(runs)}
@@ -321,7 +382,6 @@ export default function LiveScoringMatch() {
               ))}
             </div>
 
-            {/* Extras and wicket */}
             <div className="mt-2 grid grid-cols-4 gap-2">
               <button
                 type="button"
@@ -370,15 +430,69 @@ export default function LiveScoringMatch() {
         </div>
       </div>
 
+      {/* Wicket: dismiss, then bring the next batter in */}
       <WicketSheet
         open={wicketOpen}
         onClose={() => setWicketOpen(false)}
-        battingSquad={battingSquad}
-        bowlingSquad={bowlingSquad}
-        onConfirm={(spec) => {
+        battingSquad={formSquadFor(match, innings?.battingTeamId)}
+        bowlingSquad={formSquadFor(match, innings?.bowlingTeamId)}
+        onConfirm={async (spec) => {
           setWicketOpen(false);
-          sendBall(spec);
+          await sendBall(spec);
+          // The crease is empty now; ask for the incoming batter straight away.
+          setPicker('striker');
         }}
+      />
+
+      {/* Player pickers */}
+      <PlayerPickerSheet
+        open={picker === 'striker'}
+        title={t('scoring.chooseStriker')}
+        players={availableBatters}
+        unavailable={[
+          nonStrikerLine?.playerId,
+          strikerLine?.playerId,
+        ]}
+        selectedId={strikerLine?.playerId}
+        onPick={(id) => {
+          const other = nonStrikerLine?.playerId;
+          if (String(id) === String(other)) {
+            setBanner({ tone: 'error', text: t('scoring.sameBatterTwice') });
+            return;
+          }
+          applyPlayers({ strikerId: id, nonStrikerId: other });
+        }}
+        onClose={() => setPicker(null)}
+      />
+
+      <PlayerPickerSheet
+        open={picker === 'nonStriker'}
+        title={t('scoring.chooseNonStriker')}
+        players={availableBatters}
+        unavailable={[
+          strikerLine?.playerId,
+          nonStrikerLine?.playerId,
+        ]}
+        selectedId={nonStrikerLine?.playerId}
+        onPick={(id) => {
+          const striker = strikerLine?.playerId;
+          if (String(id) === String(striker)) {
+            setBanner({ tone: 'error', text: t('scoring.sameBatterTwice') });
+            return;
+          }
+          applyPlayers({ strikerId: striker, nonStrikerId: id });
+        }}
+        onClose={() => setPicker(null)}
+      />
+
+      <PlayerPickerSheet
+        open={picker === 'bowler'}
+        title={t('scoring.chooseBowler')}
+        players={availableBowlers}
+        unavailable={[bowlerLine?.playerId]}
+        selectedId={bowlerLine?.playerId}
+        onPick={(id) => applyPlayers({ bowlerId: id })}
+        onClose={() => setPicker(null)}
       />
 
       <ConfirmDialog
@@ -398,8 +512,14 @@ export default function LiveScoringMatch() {
   );
 }
 
-/** One labelled slot: striker, non-striker or bowler. */
-function PlayerSlot({ label, name, tone, detail }) {
+/** Reshape a playing squad into what WicketSheet expects. */
+function formSquadFor(match, teamId) {
+  const squad = match?.playingSquads?.find((entry) => String(entry.teamId) === String(teamId));
+  return { playerIds: squad?.playerIds ?? [] };
+}
+
+/** One labelled slot: striker, non-striker or bowler. Tap to change. */
+function PlayerSlot({ label, name, tone, detail, onClick, actionLabel }) {
   const toneClass =
     tone === 'brand'
       ? 'border-brand/40 bg-brand/5'
@@ -407,11 +527,30 @@ function PlayerSlot({ label, name, tone, detail }) {
         ? 'border-gold/40 bg-gold/5'
         : 'border-surface-border bg-surface-raised';
 
-  return (
-    <div className={cn('rounded-xl border p-3', toneClass)}>
+  const content = (
+    <>
       <p className="text-2xs font-semibold uppercase tracking-widest text-content-muted">{label}</p>
       <p className="mt-0.5 truncate text-sm font-bold text-content-primary">{name || '—'}</p>
       {detail && <p className="tabular mt-0.5 text-xs text-content-secondary">{detail}</p>}
-    </div>
+      {onClick && (
+        <p className="mt-1 text-2xs font-semibold text-brand-light">
+          {name ? `${actionLabel} ▾` : `+ ${actionLabel}`}
+        </p>
+      )}
+    </>
+  );
+
+  if (!onClick) {
+    return <div className={cn('rounded-xl border p-3', toneClass)}>{content}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn('rounded-xl border p-3 text-left transition hover:brightness-110', toneClass)}
+    >
+      {content}
+    </button>
   );
 }

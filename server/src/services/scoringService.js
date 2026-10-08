@@ -22,11 +22,132 @@ import ApiError from "../utils/ApiError.js";
  *
  * It is a SEQUENTIAL service by necessity. Two balls recorded at once would both read
  * the same "balls before" value and both write the same position, corrupting the
- * innings. The socket is read-only and deliveries arrive over REST, so the scorer's
- * own client is the only writer — but a double-tap on a phone still has to be safe,
- * which is why the ball's position is a unique index and a duplicate insert is
- * rejected rather than silently accepted.
+ * innings.
  */
+
+/* ------------------------------------------------------------------ *
+ * Players at the crease
+ * ------------------------------------------------------------------ */
+
+/**
+ * Set or replace the striker, non-striker and bowler for the current innings.
+ *
+ * Called at three moments in a match's life:
+ *   - right after start, to name the opening pair and the first bowler
+ *   - after a wicket, to bring the next batter in
+ *   - at the end of an over, to name the next bowler
+ *
+ * One function handles all three because the operation is identical: clear the old
+ * markers, set the new ones. Treating the opening pair as a special case would mean
+ * two code paths that can drift apart.
+ *
+ * Any field may be omitted. Omitting one leaves that slot untouched, which is what
+ * lets the client send only the batter who just came in.
+ */
+export async function setPlayers({
+  matchId,
+  strikerId,
+  nonStrikerId,
+  bowlerId,
+}) {
+  const match = await Match.findById(matchId);
+  if (!match) throw ApiError.notFound("Match not found");
+
+  if (match.status !== MATCH_STATUS.LIVE) {
+    throw ApiError.badRequest(
+      "Players can only be set while the match is live",
+    );
+  }
+
+  const innings = match.innings[match.currentInnings];
+  if (!innings) throw ApiError.badRequest("No innings is in progress");
+
+  // Every id must belong to one of the two playing squads. A stray id from the
+  // season roster would put a non-playing player on the field.
+  const playingIds = new Set(
+    (match.playingSquads ?? []).flatMap((squad) => squad.playerIds.map(String)),
+  );
+
+  for (const [label, id] of [
+    ["striker", strikerId],
+    ["non-striker", nonStrikerId],
+    ["bowler", bowlerId],
+  ]) {
+    if (id && !playingIds.has(String(id))) {
+      throw ApiError.badRequest(`The ${label} is not in either playing squad`);
+    }
+  }
+
+  if (strikerId && nonStrikerId && String(strikerId) === String(nonStrikerId)) {
+    throw ApiError.badRequest(
+      "The striker and non-striker must be different players",
+    );
+  }
+
+  // A dismissed batter cannot return to the crease, so they are never a valid pick.
+  const battingLine = (id) =>
+    (innings.batting ?? []).find(
+      (line) => String(line.playerId) === String(id),
+    );
+
+  for (const [label, id] of [
+    ["striker", strikerId],
+    ["non-striker", nonStrikerId],
+  ]) {
+    if (!id) continue;
+    const line = battingLine(id);
+    if (!line)
+      throw ApiError.badRequest(`The ${label} is not in the batting side`);
+    if (line.isOut) throw ApiError.badRequest(`The ${label} is already out`);
+  }
+
+  // Apply the batting changes.
+  if (strikerId || nonStrikerId) {
+    for (const line of innings.batting ?? []) {
+      if (line.isOut) {
+        line.isStriker = false;
+        continue;
+      }
+
+      const id = String(line.playerId);
+
+      if (strikerId && id === String(strikerId)) {
+        line.isStriker = true;
+        line.hasBatted = true;
+      } else if (nonStrikerId && id === String(nonStrikerId)) {
+        line.isStriker = false;
+        line.hasBatted = true;
+      } else if (strikerId || nonStrikerId) {
+        // Only clear the marker when a batting change was actually sent — otherwise
+        // a bowler-only update would wipe the striker.
+        line.isStriker = false;
+      }
+    }
+  }
+
+  // Apply the bowling change.
+  if (bowlerId) {
+    const isInBowlingSide = (innings.bowling ?? []).some(
+      (line) => String(line.playerId) === String(bowlerId),
+    );
+    if (!isInBowlingSide) {
+      throw ApiError.badRequest("The bowler is not in the bowling side");
+    }
+
+    for (const line of innings.bowling ?? []) {
+      const isTheBowler = String(line.playerId) === String(bowlerId);
+      line.isBowling = isTheBowler;
+      if (isTheBowler) {
+        // A fresh over, so the maiden check restarts.
+        line.currentOverRuns = 0;
+        line.currentOverBalls = 0;
+      }
+    }
+  }
+
+  await match.save();
+  return match;
+}
 
 /* ------------------------------------------------------------------ *
  * Recording a delivery
@@ -34,11 +155,6 @@ import ApiError from "../utils/ApiError.js";
 
 /**
  * Record one delivery and return the new match state.
- *
- * @param {object} params
- * @param {string} params.matchId
- * @param {object} params.delivery  validated ball payload
- * @param {string} params.userId    Mongo id of the scorer
  */
 export async function recordBall({ matchId, delivery, userId }) {
   const match = await Match.findById(matchId);
@@ -50,8 +166,6 @@ export async function recordBall({ matchId, delivery, userId }) {
     );
   }
 
-  // The season owns the rules. A 10-over format and a 20-over format are the same
-  // code with a different number, which is what makes Season 2 cheap to run.
   const season = await resolveSeason(match.seasonId, { required: true });
   const rules = season.matchRules ?? {};
 
@@ -74,7 +188,6 @@ export async function recordBall({ matchId, delivery, userId }) {
     inningsComplete: innings.isComplete,
   });
 
-  // --- Compute everything from the delivery before writing anything -------------
   const totalRuns = engine.computeDeliveryRuns(delivery, rulesForDelivery);
   const bowlerRuns = engine.runsChargedToBowler(delivery, rulesForDelivery);
   const runsRun = engine.runsRunByBatters(delivery);
@@ -97,7 +210,6 @@ export async function recordBall({ matchId, delivery, userId }) {
     runs: nextRuns,
   });
 
-  // --- Apply to the innings ----------------------------------------------------
   applyDeliveryToInnings({
     innings,
     delivery,
@@ -111,7 +223,6 @@ export async function recordBall({ matchId, delivery, userId }) {
   innings.wickets = nextWickets;
   innings.balls = counter.legalBalls;
 
-  // --- Build the ball record ---------------------------------------------------
   const commentary =
     delivery.commentaryBn || delivery.commentaryEn
       ? {
@@ -156,7 +267,6 @@ export async function recordBall({ matchId, delivery, userId }) {
     recordedBy: userId ?? null,
   });
 
-  // --- Persist ----------------------------------------------------------------
   // The unique index on (matchId, innings, sequence) is the concurrency guard: a
   // double-tap produces the same sequence twice and the second insert is rejected.
   try {
@@ -171,9 +281,25 @@ export async function recordBall({ matchId, delivery, userId }) {
   match.ballSequence += 1;
   match.freeHitPending = engine.grantsFreeHit(delivery, rules);
 
-  // The strike rotates on odd runs, and again at the end of an over.
   if (engine.shouldRotateStrike({ runsRun, overComplete })) {
     swapStrike(innings);
+  }
+
+  // A wicket removes whoever was dismissed and leaves the crease empty for them.
+  // The scorer then names the incoming batter through setPlayers; until they do the
+  // strike card reads "—", which is honest rather than guessing a replacement.
+  if (delivery.isWicket && delivery.dismissedPlayerId) {
+    for (const line of innings.batting ?? []) {
+      if (String(line.playerId) === String(delivery.dismissedPlayerId)) {
+        line.isOut = true;
+        line.isStriker = false;
+      }
+    }
+  }
+
+  // An over change clears the bowler marker so the console can ask for the next one.
+  if (overComplete && innings.bowling?.length) {
+    for (const line of innings.bowling) line.isBowling = false;
   }
 
   let inningsEnded = false;
@@ -182,11 +308,9 @@ export async function recordBall({ matchId, delivery, userId }) {
     innings.closedReason = endCheck.reason;
     inningsEnded = true;
 
-    // Second innings finishing means the match is over.
     if (inningsIndex === 1 || endCheck.reason === "TARGET_REACHED") {
       closeMatch(match);
     } else {
-      // First innings done: open the second with the target set.
       openSecondInnings(match, rules);
     }
   }
@@ -211,8 +335,7 @@ export async function recordBall({ matchId, delivery, userId }) {
  *
  * Deleting a ball cannot simply subtract its runs: the free-hit flag, the strike,
  * the bowler's over count and a possible innings end all depend on the sequence. So
- * the innings is REBUILT from the remaining deliveries, which is why the Ball
- * collection is append-only — it is the source of truth.
+ * the innings is REBUILT from the remaining deliveries.
  */
 export async function undoLastBall({ matchId, innings: requestedInnings }) {
   const match = await Match.findById(matchId);
@@ -238,7 +361,6 @@ export async function undoLastBall({ matchId, innings: requestedInnings }) {
 
   match.ballSequence = Math.max(0, match.ballSequence - 1);
 
-  // An undo can take a finished match back to live — that is the point of it.
   if (match.status === MATCH_STATUS.COMPLETED) {
     match.status = MATCH_STATUS.LIVE;
     match.result = {
@@ -260,9 +382,6 @@ export async function undoLastBall({ matchId, innings: requestedInnings }) {
 
 /**
  * Rebuild one innings entirely from its remaining deliveries.
- *
- * This is the only way an undo can be correct: every derived value is recomputed in
- * order rather than adjusted, so no drift is possible.
  */
 export async function rebuildInnings(match, inningsIndex, rules) {
   const balls = await Ball.find({ matchId: match._id, innings: inningsIndex })
@@ -276,7 +395,6 @@ export async function rebuildInnings(match, inningsIndex, rules) {
   const ballsPerInnings = (rules.oversPerInnings ?? 10) * ballsPerOver;
   const maxWickets = (rules.playersPerSide ?? 9) - 1;
 
-  // Reset the innings to its starting state.
   innings.runs = 0;
   innings.wickets = 0;
   innings.balls = 0;
@@ -341,7 +459,6 @@ export async function rebuildInnings(match, inningsIndex, rules) {
       swapStrike(innings);
   }
 
-  // Re-evaluate whether the innings is now complete.
   const endCheck = engine.checkInningsEnd({
     legalBalls: innings.balls,
     ballsPerInnings,
@@ -365,16 +482,11 @@ export async function rebuildInnings(match, inningsIndex, rules) {
 
 /**
  * Open the second innings.
- *
- * The target is the first innings' runs plus one — the chasing side has to beat the
- * score, not match it.
  */
 export function openSecondInnings(match, rules) {
   const first = match.innings[0];
-  const playersPerSide = rules.playersPerSide ?? 9;
 
   if (match.innings.length > 1) {
-    // Already exists (an undo re-opened it) — just make sure the target is right.
     match.innings[1].target = first.runs + 1;
     match.currentInnings = 1;
     return match;
@@ -404,10 +516,12 @@ export function openSecondInnings(match, rules) {
     wickets: 0,
     balls: 0,
     extras: { wides: 0, noBalls: 0, byes: 0, legByes: 0 },
-    batting: battingOrder.map((playerId, index) => ({
+    // Nobody is at the crease yet — the scorer names the opening pair for this
+    // innings through setPlayers, exactly as they did for the first.
+    batting: battingOrder.map((playerId) => ({
       playerId,
-      isStriker: index === 0,
-      hasBatted: index < 2,
+      isStriker: false,
+      hasBatted: false,
     })),
     bowling: bowlingSquad.map((playerId) => ({ playerId })),
     target: first.runs + 1,
@@ -422,11 +536,6 @@ export function openSecondInnings(match, rules) {
 
 /**
  * Finish the match and write the result text.
- *
- * Two cases the rules care about:
- *   - the chasing side reaches the target → they win by wickets
- *   - the chase falls short → the first side wins by runs
- * A tie (identical scores) is left for an explicit super over, so no winner is set.
  */
 export function closeMatch(match) {
   const first = match.innings[0];
@@ -455,7 +564,6 @@ export function closeMatch(match) {
   }
 
   if (second.runs === first.runs) {
-    // A tie is not a result — the super over decides it, or the points are shared.
     match.result = {
       resultType: "TIE",
       winnerTeamId: null,
@@ -484,13 +592,6 @@ export function closeMatch(match) {
  * Points table
  * ------------------------------------------------------------------ */
 
-/**
- * Recalculate the standings for a season from every completed match.
- *
- * Recomputed from scratch rather than incremented per match, because an undo can
- * un-complete a match and an incremented table has no way back. With six matches per
- * season the cost is nothing.
- */
 export async function refreshPointsTable(seasonId, rules = {}) {
   const oversPerInnings = rules.oversPerInnings ?? 10;
 
@@ -505,7 +606,6 @@ export async function refreshPointsTable(seasonId, rules = {}) {
     allTeams.add(String(match.teamBId));
   }
 
-  // Start every team from zero.
   const table = new Map();
   for (const teamId of allTeams) {
     table.set(teamId, {
@@ -541,7 +641,6 @@ export async function refreshPointsTable(seasonId, rules = {}) {
     const teamB = table.get(String(match.teamBId));
     if (!teamA || !teamB) continue;
 
-    // Each side's figures, from its own batting innings.
     const sideA =
       String(first.battingTeamId) === String(match.teamAId) ? first : second;
     const sideB = sideA === first ? second : first;
@@ -586,8 +685,6 @@ export async function refreshPointsTable(seasonId, rules = {}) {
     }
   }
 
-  // Net run rate, using the standard rule that an all-out side is treated as having
-  // faced its full quota.
   for (const row of table.values()) {
     row.nrr = netRunRate({
       runsFor: row.runsFor,
@@ -616,7 +713,6 @@ export async function refreshPointsTable(seasonId, rules = {}) {
  * Helpers
  * ------------------------------------------------------------------ */
 
-/** Update the batting and bowling lines for one delivery. */
 function applyDeliveryToInnings({
   innings,
   delivery,
@@ -637,14 +733,8 @@ function applyDeliveryToInnings({
 
   if (batter) {
     batter.hasBatted = true;
-    // A wide does not count as a ball faced; a no-ball does.
     if (delivery.extraType !== EXTRA_TYPE.WIDE) batter.balls += 1;
-    if (!delivery.extraType) {
-      batter.runs += delivery.runsBat ?? 0;
-      if (delivery.runsBat === 4) batter.fours += 1;
-      if (delivery.runsBat === 6) batter.sixes += 1;
-    } else if (delivery.extraType === EXTRA_TYPE.NO_BALL) {
-      // Runs off the bat still count on a no-ball.
+    if (!delivery.extraType || delivery.extraType === EXTRA_TYPE.NO_BALL) {
       batter.runs += delivery.runsBat ?? 0;
       if (delivery.runsBat === 4) batter.fours += 1;
       if (delivery.runsBat === 6) batter.sixes += 1;
@@ -670,7 +760,6 @@ function applyDeliveryToInnings({
       bowler.wickets += 1;
     }
 
-    // Maiden: over complete with no runs charged to the bowler in it.
     if (engine.completesOver(counter.legalBalls, rules.ballsPerOver ?? 6)) {
       if (bowler.currentOverRuns === 0) bowler.maidens += 1;
       bowler.currentOverRuns = 0;
@@ -678,7 +767,6 @@ function applyDeliveryToInnings({
     }
   }
 
-  // A run out credits no bowler wicket, but the dismissed batter is still out.
   if (delivery.isWicket && delivery.dismissedPlayerId) {
     const dismissed = (innings.batting ?? []).find(
       (line) => String(line.playerId) === String(delivery.dismissedPlayerId),
@@ -692,7 +780,6 @@ function applyDeliveryToInnings({
     }
   }
 
-  // Extras tally.
   if (delivery.extraType === EXTRA_TYPE.WIDE) innings.extras.wides += 1;
   if (delivery.extraType === EXTRA_TYPE.NO_BALL) innings.extras.noBalls += 1;
   if (delivery.extraType === EXTRA_TYPE.BYE)
@@ -700,7 +787,6 @@ function applyDeliveryToInnings({
   if (delivery.extraType === EXTRA_TYPE.LEG_BYE)
     innings.extras.legByes += delivery.runsBye ?? 0;
 
-  // The striker marker follows the strike.
   for (const line of innings.batting ?? []) {
     line.isStriker = String(line.playerId) === String(delivery.batterId);
   }
@@ -727,4 +813,5 @@ export default {
   rebuildInnings,
   refreshPointsTable,
   closeMatch,
+  setPlayers,
 };

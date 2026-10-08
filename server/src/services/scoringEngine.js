@@ -78,10 +78,17 @@ export function runsRunByBatters({
 /**
  * Does this delivery arm a free hit for the next ball?
  */
+/**
+ * Does this delivery arm a free hit for the next ball?
+ *
+ * A no-ball only. A wide does not grant a free hit under the Laws, and treating the
+ * two the same showed a "Free hit" banner after every wide.
+ */
 export function grantsFreeHit(delivery, rules) {
   if (!rules?.freeHit?.enabled) return false;
-  return isNonLegal(delivery.extraType);
+  return delivery.extraType === EXTRA_TYPE.NO_BALL;
 }
+
 
 /**
  * Validate a delivery against the season rules before it is recorded.

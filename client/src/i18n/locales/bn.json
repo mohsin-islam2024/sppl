@@ -64,7 +64,9 @@
     "viewPointsTable": "পয়েন্ট টেবিল দেখুন",
     "statTeams": "দল",
     "statPlayers": "খেলোয়াড়",
-    "statMatches": "ম্যাচ"
+    "statMatches": "ম্যাচ",
+    "teamsLineDynamic": "{{teams}}টি দল। {{matches}}টি ম্যাচ। একটাই চ্যাম্পিয়ন।"
+
   },
   "season": {
     "switchLabel": "সিজন নির্বাচন করুন",
@@ -343,7 +345,21 @@
     "runsOnThisBall": "এই বলে রান",
     "confirmWicket": "উইকেট নিশ্চিত করুন",
     "endInningsTitle": "ইনিংস শেষ করবেন?",
-    "endInningsBody": "এই ইনিংস এখনই শেষ হবে।",
+    "endInningsBody": "এই ইনিংস এখনই শেষ হবে।",    
+    "bowler": "বোলার",
+    "change": "পরিবর্তন",
+    "chooseStriker": "স্ট্রাইকার নির্বাচন করুন",
+    "chooseNonStriker": "নন-স্ট্রাইকার নির্বাচন করুন",
+    "chooseBowler": "বোলার নির্বাচন করুন",
+    "sameBatterTwice": "একই খেলোয়াড় দুই প্রান্তে থাকতে পারবে না",
+    "needStriker": "নতুন ব্যাটসম্যান নির্বাচন করুন",
+    "needBowler": "পরের ওভারের বোলার নির্বাচন করুন",
+    "needStrikerAndBowler": "স্ট্রাইকার ও বোলার নির্বাচন করুন",   
+    "needOpeningPlayers": "শুরুর স্ট্রাইকার, নন-স্ট্রাইকার ও বোলার নির্বাচন করুন",
+    "openingPlayers": "শুরুর খেলোয়াড়",
+    "openingPlayersHint": "কে ব্যাট করবেন আর কে প্রথম ওভার করবেন",
+    "noPlayersAvailable": "কোনো খেলোয়াড় পাওয়া যায়নি",
+    "unavailable": "নেওয়া যাবে না",
     "wicketType": {
       "BOWLED": "বোল্ড",
       "CAUGHT": "ক্যাচ",

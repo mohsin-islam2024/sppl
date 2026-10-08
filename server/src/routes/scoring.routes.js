@@ -64,6 +64,13 @@ router.post(
   scoring.recordBall,
 );
 
+router.post(
+  "/:matchId/players",
+  writeLimiter,
+  assignedToMatch,
+  scoring.setPlayers,
+);
+
 router.post("/:matchId/undo", writeLimiter, assignedToMatch, scoring.undoBall);
 router.post(
   "/:matchId/end-innings",

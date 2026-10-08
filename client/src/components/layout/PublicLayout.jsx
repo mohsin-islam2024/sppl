@@ -7,6 +7,8 @@ import useTheme from '../../hooks/useTheme.js';
 import LanguageToggle from '../common/LanguageToggle.jsx';
 import ThemeToggle from '../common/ThemeToggle.jsx';
 import PageLoader from '../common/PageLoader.jsx';
+import { useActiveSeason } from '../../hooks/useActiveSeason.js';
+
 
 /**
  * Public site chrome: header, main, footer.
@@ -19,6 +21,7 @@ export default function PublicLayout() {
   const { t } = useTranslation();
   const { isAuthenticated, isAdmin, profile, logout } = useAuth();
   const { isDark } = useTheme();
+  const { season } = useActiveSeason();
   const navigate = useNavigate();
 
   const navLinks = [
@@ -50,9 +53,12 @@ export default function PublicLayout() {
               <span className="font-display text-lg font-extrabold tracking-tight text-content-primary">
                 {t('common.appName')}
               </span>
+              {/* Reads the active season rather than a hard-coded year. As written the header
+              claimed "Season 1 · 2026" while the page below it was showing Season 2. */}
               <span className="text-2xs font-medium uppercase tracking-widest text-gold">
-                Season 1 · 2026
+                 {season ? `${season.shortName} ${season.seasonNo} · ${season.year}` : 'SPPL'}
               </span>
+
             </span>
           </Link>
 
