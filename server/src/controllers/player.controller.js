@@ -4,26 +4,21 @@ import { Player } from "../models/Player.js";
 import { PlayerStat } from "../models/PlayerStat.js";
 import { Team } from "../models/Team.js";
 import { resolveSeason } from "../services/seasonService.js";
+import { getCareerTotals } from "../services/statsService.js";
 import { PLAYER_ROLE } from "@sppl/shared/constants/tournament.js";
 import ApiError from "../utils/ApiError.js";
 
 /**
  * Public player reads.
  *
- * Career figures come from the materialised `PlayerStat` documents, not from
- * aggregating the Ball collection per request. A season is 6 matches today but the
- * same code has to survive a 40-match season without changing.
+ * Career figures come from the materialised `PlayerStat` documents, rebuilt by
+ * `statsService` whenever a match finishes — not by aggregating the Ball collection
+ * per request. A season is a handful of matches today, but the same code has to
+ * survive a long one without changing.
  */
 
 /**
  * GET /api/v1/players
- *
- * Query params:
- *   season   season slug or id; defaults to current
- *   team     team slug or id
- *   role     BATTER | BOWLER | ALL_ROUNDER | WICKET_KEEPER
- *   search   matches full name or jersey name
- *   page, limit
  */
 export const listPlayers = asyncHandler(async (req, res) => {
   const { page, limit, search, role, team } = req.query;
@@ -114,6 +109,10 @@ export const getPlayer = asyncHandler(async (req, res) => {
     playerId: player._id,
   }).lean();
 
+  // The career view sums every season this player has appeared in. Derived on read
+  // so it can never drift from the per-season figures.
+  const careerTotals = await getCareerTotals(player._id);
+
   res.status(200).json(
     ok({
       player: toPlayerProfile(player),
@@ -138,7 +137,9 @@ export const getPlayer = asyncHandler(async (req, res) => {
           }
         : null,
       stats: toStatSummary(stat),
+      // Two views: the season just selected, and the whole career across seasons.
       career: toCareerFigures(stat),
+      careerTotals: toCareerTotals(careerTotals),
     }),
   );
 });
@@ -156,24 +157,23 @@ export const getPlayerStats = asyncHandler(async (req, res) => {
     seasonId: player.seasonId,
     playerId: player._id,
   }).lean();
+  const careerTotals = await getCareerTotals(player._id);
 
-  res
-    .status(200)
-    .json(
-      ok({
-        playerId: player._id,
-        stats: toStatSummary(stat),
-        career: toCareerFigures(stat),
-      }),
-    );
+  res.status(200).json(
+    ok({
+      playerId: player._id,
+      stats: toStatSummary(stat),
+      career: toCareerFigures(stat),
+      careerTotals: toCareerTotals(careerTotals),
+    }),
+  );
 });
 
 /**
  * GET /api/v1/players/compare?ids=a,b
  *
  * Two to four players, side by side. Bounded at four because the comparison table
- * stops being readable past that on a phone — which is where most of this audience
- * will read it.
+ * stops being readable past that on a phone.
  */
 export const comparePlayers = asyncHandler(async (req, res) => {
   const ids = toArray(req.query.ids);
@@ -274,11 +274,10 @@ export function toStatSummary(stat) {
 }
 
 /**
- * Derived figures.
+ * Derived figures for one season.
  *
- * A blank average (no dismissals yet) is returned as `null`, not 0. Zero would
- * claim a batter averages nothing; null says the figure does not exist yet, and the
- * UI renders a dash.
+ * A blank average (no dismissals yet) is returned as `null`, not 0. Zero would claim
+ * a batter averages nothing; null says the figure does not exist yet.
  */
 export function toCareerFigures(stat) {
   const empty = {
@@ -333,6 +332,8 @@ export function toCareerFigures(stat) {
     average: dismissals > 0 ? round(stat.runs / dismissals, 2) : null,
     strikeRate:
       ballsFaced > 0 ? round((stat.runs / ballsFaced) * 100, 2) : null,
+    fours: stat.fours ?? 0,
+    sixes: stat.sixes ?? 0,
     fifties: stat.fifties ?? 0,
     hundreds: stat.hundreds ?? 0,
     ducks: stat.ducks ?? 0,
@@ -360,6 +361,60 @@ export function toCareerFigures(stat) {
   };
 }
 
+/**
+ * Shape the all-seasons totals the same way one season's figures are shaped, so the
+ * profile page can render both with one set of components.
+ */
+export function toCareerTotals(totals) {
+  if (!totals) return null;
+
+  const ballsFaced = totals.ballsFaced ?? 0;
+  const ballsBowled = totals.ballsBowled ?? 0;
+  const wickets = totals.wickets ?? 0;
+  const dismissals = totals.dismissals ?? 0;
+
+  return {
+    seasons: totals.seasons ?? 0,
+    matches: totals.matches ?? 0,
+    innings: totals.innings ?? 0,
+    runs: totals.runs ?? 0,
+    ballsFaced,
+    dismissals,
+    highScore: totals.highScore > 0 ? totals.highScore : null,
+    highScoreNotOut: Boolean(totals.highScoreNotOut),
+    average: dismissals > 0 ? round(totals.runs / dismissals, 2) : null,
+    strikeRate:
+      ballsFaced > 0 ? round((totals.runs / ballsFaced) * 100, 2) : null,
+    fours: totals.fours ?? 0,
+    sixes: totals.sixes ?? 0,
+    fifties: totals.fifties ?? 0,
+    hundreds: totals.hundreds ?? 0,
+    ducks: totals.ducks ?? 0,
+    ballsBowled,
+    oversBowled: round(ballsBowled / 6, 1),
+    runsConceded: totals.runsConceded ?? 0,
+    wickets,
+    maidens: totals.maidens ?? 0,
+    bestBowling:
+      wickets > 0 &&
+      totals.bestBowlingRuns !== null &&
+      totals.bestBowlingRuns !== undefined
+        ? `${totals.bestBowlingWickets ?? 0}/${totals.bestBowlingRuns}`
+        : null,
+    economy:
+      ballsBowled > 0
+        ? round((totals.runsConceded ?? 0) / (ballsBowled / 6), 2)
+        : null,
+    bowlingAverage:
+      wickets > 0 ? round((totals.runsConceded ?? 0) / wickets, 2) : null,
+    threeWicketHauls: totals.threeWicketHauls ?? 0,
+    catches: totals.catches ?? 0,
+    runOuts: totals.runOuts ?? 0,
+    stumpings: totals.stumpings ?? 0,
+    playerOfMatchAwards: totals.playerOfMatchAwards ?? 0,
+  };
+}
+
 /** Round to a fixed number of decimals, guarding against a non-finite input. */
 function round(value, decimals = 2) {
   if (!Number.isFinite(value)) return null;
@@ -373,4 +428,5 @@ export default {
   comparePlayers,
   toPlayerProfile,
   toCareerFigures,
+  toCareerTotals,
 };

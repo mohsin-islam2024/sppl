@@ -12,11 +12,14 @@ import { initials, toBengaliDigits, formatRate } from '../../utils/format.js';
  * Player page.
  *
  * The figures are laid out as the three tables a cricketer is actually judged on —
- * batting, bowling, fielding — rather than as one undifferentiated list of numbers.
+ * batting, bowling, fielding — rather than one undifferentiated list of numbers.
  *
  * A missing figure renders as a dash, never as a zero. A batter who has never been
  * dismissed does not have an average of 0.00; the number does not exist, and printing
  * a zero claims something false about them.
+ *
+ * Career totals appear only when a player has featured in more than one season — with
+ * a single season the season view already IS the career.
  */
 export default function PlayerDetail() {
   const { t } = useTranslation();
@@ -48,7 +51,7 @@ export default function PlayerDetail() {
     );
   }
 
-  const { player, team, season, career } = data ?? {};
+  const { player, team, season, career, careerTotals } = data ?? {};
 
   if (!player) {
     return (
@@ -134,6 +137,7 @@ export default function PlayerDetail() {
           </div>
         </section>
 
+        {/* Season batting */}
         {hasBatting && (
           <section aria-labelledby="batting-heading">
             <h2
@@ -166,6 +170,7 @@ export default function PlayerDetail() {
           </section>
         )}
 
+        {/* Season bowling */}
         {hasBowling && (
           <section aria-labelledby="bowling-heading">
             <h2
@@ -190,6 +195,7 @@ export default function PlayerDetail() {
           </section>
         )}
 
+        {/* Season fielding */}
         {hasFielding && (
           <section aria-labelledby="fielding-heading">
             <h2
@@ -211,6 +217,7 @@ export default function PlayerDetail() {
           </section>
         )}
 
+        {/* Nothing recorded yet */}
         {!hasBatting && !hasBowling && !hasFielding && (
           <EmptyState
             variant="notStarted"
@@ -219,6 +226,40 @@ export default function PlayerDetail() {
           />
         )}
 
+        {/* Career totals, across every season the player has appeared in */}
+        {careerTotals && careerTotals.seasons > 1 && (
+          <section aria-labelledby="career-heading">
+            <h2
+              id="career-heading"
+              className="mb-3 font-display text-lg font-bold text-content-primary"
+            >
+              {t('player.careerTotals')}
+            </h2>
+            <p className="mb-3 text-sm text-content-muted">
+              {t('player.careerSeasons', { count: toBengaliDigits(careerTotals.seasons) })}
+            </p>
+
+            <div className="card grid grid-cols-2 gap-y-5 p-5 sm:grid-cols-4">
+              <Stat label={t('player.matches')} value={careerTotals.matches} />
+              <Stat label={t('player.runs')} value={careerTotals.runs} highlight />
+              <Stat
+                label={t('player.highScore')}
+                value={
+                  careerTotals.highScore === null
+                    ? '—'
+                    : `${toBengaliDigits(careerTotals.highScore)}${careerTotals.highScoreNotOut ? '*' : ''}`
+                }
+              />
+              <Stat label={t('player.average')} value={formatRate(careerTotals.average)} />
+              <Stat label={t('player.strikeRate')} value={formatRate(careerTotals.strikeRate)} />
+              <Stat label={t('player.wickets')} value={careerTotals.wickets} highlight />
+              <Stat label={t('player.economy')} value={formatRate(careerTotals.economy)} />
+              <Stat label={t('player.bestBowling')} value={careerTotals.bestBowling ?? '—'} />
+            </div>
+          </section>
+        )}
+
+        {/* Registration details — from the organizer's jersey sheet */}
         <section className="card p-5">
           <h2 className="text-sm font-semibold text-content-primary">{t('player.registration')}</h2>
           <dl className="mt-3 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">

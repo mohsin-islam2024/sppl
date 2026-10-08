@@ -6,14 +6,17 @@ import EmptyState from '../../components/common/EmptyState.jsx';
 import { TableSkeleton, ErrorState } from '../../components/common/Skeleton.jsx';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
 import { useSeasonStats } from '../../hooks/useContent.js';
-import { toBengaliDigits, formatRate } from '../../utils/format.js';
+import { toBengaliDigits, formatRate, initials } from '../../utils/format.js';
 
 /**
  * Season statistics page.
  *
- * Six leaderboards, presented as cards in a single grid rather than as tabs. Tabs
- * would hide five sixths of the page behind a click, and this content is short
+ * Five leaderboards, presented as cards in a single grid rather than as tabs. Tabs
+ * would hide four fifths of the page behind a click, and this content is short
  * enough that a visitor scrolling is better served than a visitor choosing.
+ *
+ * Each row shows the player — name over team — with the team's crest beside it. The
+ * ranking is the server's; this page shows the order it is given.
  */
 export default function Stats() {
   const { t } = useTranslation();
@@ -25,40 +28,65 @@ export default function Stats() {
     {
       key: 'mostRuns',
       title: t('stats.mostRuns'),
+      valueLabel: t('player.runs'),
       valueKey: 'runs',
-      columns: ['matches', 'ballsFaced', 'average', 'strikeRate'],
+      columns: [
+        { key: 'matches', label: t('player.matches') },
+        { key: 'ballsFaced', label: t('player.balls') },
+        { key: 'strikeRate', label: t('player.strikeRate'), rate: true },
+      ],
     },
     {
       key: 'mostWickets',
       title: t('stats.mostWickets'),
+      valueLabel: t('player.wickets'),
       valueKey: 'wickets',
-      columns: ['matches', 'ballsBowled', 'economy', 'bestBowling'],
+      columns: [
+        { key: 'matches', label: t('player.matches') },
+        { key: 'overs', label: t('player.overs') },
+        { key: 'economy', label: t('player.economy'), rate: true },
+      ],
     },
     {
       key: 'bestStrikeRate',
       title: t('stats.bestStrikeRate'),
+      valueLabel: t('player.strikeRate'),
       valueKey: 'strikeRate',
-      columns: ['runs', 'ballsFaced'],
-      rateKeys: ['strikeRate'],
+      rateValue: true,
+      columns: [
+        { key: 'runs', label: t('player.runs') },
+        { key: 'ballsFaced', label: t('player.balls') },
+      ],
     },
     {
       key: 'bestEconomy',
       title: t('stats.bestEconomy'),
+      valueLabel: t('player.economy'),
       valueKey: 'economy',
-      columns: ['wickets', 'ballsBowled', 'runsConceded'],
-      rateKeys: ['economy'],
+      rateValue: true,
+      columns: [
+        { key: 'wickets', label: t('player.wickets') },
+        { key: 'overs', label: t('player.overs') },
+        { key: 'runsConceded', label: t('player.runsConceded') },
+      ],
     },
     {
       key: 'bestFielding',
       title: t('stats.bestFielding'),
+      valueLabel: t('stats.dismissals'),
       valueKey: 'total',
-      columns: ['catches', 'runOuts', 'stumpings'],
+      columns: [
+        { key: 'catches', label: t('player.catches') },
+        { key: 'runOuts', label: t('player.runOuts') },
+        { key: 'stumpings', label: t('player.stumpings') },
+      ],
     },
     {
       key: 'mostAwards',
       title: t('stats.mostAwards'),
+      valueLabel: t('player.playerOfMatch'),
       valueKey: 'playerOfMatchAwards',
-      columns: ['matches'],
+      columns: [{ key: 'matches', label: t('player.matches') }],
     },
   ];
 
@@ -94,16 +122,7 @@ export default function Stats() {
               const rows = data?.[board.key] ?? [];
               if (!rows.length) return null;
 
-              return (
-                <LeaderboardTable
-                  key={board.key}
-                  title={board.title}
-                  rows={rows}
-                  valueKey={board.valueKey}
-                  columns={board.columns}
-                  rateKeys={board.rateKeys ?? []}
-                />
-              );
+              return <LeaderboardTable key={board.key} {...board} rows={rows} />;
             })}
           </div>
         )}
@@ -113,25 +132,8 @@ export default function Stats() {
 }
 
 /** One leaderboard. */
-function LeaderboardTable({ title, rows, valueKey, columns, rateKeys }) {
+function LeaderboardTable({ title, valueLabel, valueKey, rateValue, rows, columns }) {
   const { t } = useTranslation();
-
-  const columnLabels = {
-    matches: t('player.matches'),
-    ballsFaced: t('player.balls'),
-    ballsBowled: t('player.overs'),
-    average: t('player.average'),
-    strikeRate: t('player.strikeRate'),
-    economy: t('player.economy'),
-    runs: t('player.runs'),
-    runsConceded: t('player.runsConceded'),
-    wickets: t('player.wickets'),
-    catches: t('player.catches'),
-    runOuts: t('player.runOuts'),
-    stumpings: t('player.stumpings'),
-    bestBowling: t('player.bestBowling'),
-    playerOfMatchAwards: t('player.playerOfMatch'),
-  };
 
   return (
     <section className="card overflow-hidden">
@@ -147,9 +149,12 @@ function LeaderboardTable({ title, rows, valueKey, columns, rateKeys }) {
                 #
               </th>
               <th scope="col">{t('table.player')}</th>
-              {[valueKey, ...columns.slice(0, 2)].map((column) => (
-                <th key={column} scope="col" className="text-center">
-                  {columnLabels[column] ?? column}
+              <th scope="col" className="text-center">
+                {valueLabel}
+              </th>
+              {columns.map((column) => (
+                <th key={column.key} scope="col" className="text-center">
+                  {column.label}
                 </th>
               ))}
             </tr>
@@ -162,33 +167,19 @@ function LeaderboardTable({ title, rows, valueKey, columns, rateKeys }) {
                 </td>
 
                 <td>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-2xs font-bold text-white"
-                      style={{ backgroundColor: row.team?.themeColor || '#1e6fd9' }}
-                      aria-hidden="true"
-                    >
-                      {row.team?.shortName?.slice(0, 3) ?? '—'}
-                    </span>
-                    <Link
-                      to={`/players/${row.playerId}`}
-                      className="truncate text-sm font-medium text-content-primary hover:text-brand-light"
-                    >
-                      {t('stats.playerLink')}
-                    </Link>
-                  </div>
+                  <PlayerCell row={row} />
                 </td>
 
-                {[valueKey, ...columns.slice(0, 2)].map((column, columnIndex) => (
+                <td className="tabular text-center font-bold text-content-primary">
+                  {formatCell(row[valueKey], rateValue ?? false)}
+                </td>
+
+                {columns.map((column) => (
                   <td
-                    key={column}
-                    className={`tabular text-center ${
-                      columnIndex === 0
-                        ? 'font-bold text-content-primary'
-                        : 'text-content-secondary'
-                    }`}
+                    key={column.key}
+                    className="tabular text-center text-content-secondary"
                   >
-                    {formatCell(row, column, rateKeys)}
+                    {formatCell(row[column.key], column.rate ?? false)}
                   </td>
                 ))}
               </tr>
@@ -200,11 +191,77 @@ function LeaderboardTable({ title, rows, valueKey, columns, rateKeys }) {
   );
 }
 
+/**
+ * The player column: team crest, the player's name, and the team beneath it.
+ *
+ * The crest is the team's own logo where one has been uploaded, and a coloured badge
+ * with the initials where it has not — a blank circle would read as a broken image.
+ */
+function PlayerCell({ row }) {
+  const { t } = useTranslation();
+  const name = row.playerName || row.fullName || t('stats.playerLink');
+  const teamName = row.team?.name ?? '';
+  const shortName = row.team?.shortName ?? '';
+
+  return (
+    <div className="flex items-center gap-2.5">
+      <TeamCrest row={row} />
+
+      <Link
+        to={`/players/${row.playerId}`}
+        className="min-w-0 hover:text-brand-light"
+      >
+        <span className="block truncate text-sm font-medium text-content-primary">
+          {name}
+          {row.jerseyNo !== null && row.jerseyNo !== undefined && (
+            <span className="ml-1.5 text-2xs font-normal text-content-muted">
+              #{toBengaliDigits(row.jerseyNo)}
+            </span>
+          )}
+        </span>
+        {teamName && (
+          <span className="block truncate text-2xs text-content-muted">
+            {shortName ? `${shortName} · ` : ''}
+            {teamName}
+          </span>
+        )}
+      </Link>
+    </div>
+  );
+}
+
+/** The team's logo, or a coloured badge when no logo has been uploaded. */
+function TeamCrest({ row }) {
+  const logoUrl = row.team?.logoUrl;
+
+  if (logoUrl) {
+    return (
+      <img
+        src={logoUrl}
+        alt={row.team?.name ?? ''}
+        width={24}
+        height={24}
+        className="h-6 w-6 shrink-0 rounded-full object-cover"
+        loading="lazy"
+      />
+    );
+  }
+
+  return (
+    <span
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-2xs font-bold text-white"
+      style={{ backgroundColor: row.team?.themeColor || '#1e6fd9' }}
+      aria-hidden="true"
+    >
+      {initials(row.team?.shortName ?? row.team?.name ?? '')}
+    </span>
+  );
+}
+
 /** Render one figure, as a rate or as a whole number. */
-function formatCell(row, key, rateKeys) {
-  const value = row[key];
+function formatCell(value, isRate) {
   if (value === null || value === undefined) return '—';
-  if (rateKeys.includes(key)) return formatRate(value);
+  if (isRate) return formatRate(value);
   if (typeof value === 'number') return toBengaliDigits(value);
   return value;
 }

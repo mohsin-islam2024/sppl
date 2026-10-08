@@ -10,7 +10,9 @@
     "seed": "node src/scripts/seedSeason1.js",
     "set-role": "node src/scripts/setAdminRole.js",
     "reset-season": "node src/scripts/resetSeason.js",
-    "assign-scorer": "node src/scripts/assignScorer.js"
+    "assign-scorer": "node src/scripts/assignScorer.js",
+    "recompute-stats": "node src/scripts/recomputeStats.js"
+
   },
   "dependencies": {
     "@sppl/shared": "*",

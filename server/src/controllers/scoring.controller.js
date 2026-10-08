@@ -52,13 +52,10 @@ export const getScoringContext = asyncHandler(async (req, res) => {
 
   const currentInnings = match.innings?.[match.currentInnings] ?? null;
 
-  // The batting lines hold only ids, so the console needs the populated squad to
-  // resolve names. Sending the lines as they are lets the client join them itself
-  // without a second request.
-  const playingSquads = match.playingSquads ?? [];
-
+  // The batting and bowling lines hold only ids, so the client needs the populated
+  // squad to resolve names. Sending both lets it render without a second request.
   const playerIndex = new Map();
-  for (const squad of playingSquads) {
+  for (const squad of match.playingSquads ?? []) {
     for (const player of squad.playerIds ?? []) {
       playerIndex.set(String(player._id ?? player.id), player);
     }
@@ -81,7 +78,7 @@ export const getScoringContext = asyncHandler(async (req, res) => {
     ) ?? null;
   const bowler = bowlingLines.find((line) => line.isBowling) ?? null;
 
-  // The next batter is offered as a suggestion only — the scorer decides.
+  // Offered as a suggestion only — the scorer decides who comes in.
   const nextBatter =
     battingLines.find((line) => !line.hasBatted && !line.isOut)?.playerId ??
     null;
@@ -184,9 +181,8 @@ export const startMatch = asyncHandler(async (req, res) => {
 /**
  * POST /api/v1/scoring/:matchId/players
  *
- * Set or change the striker, non-striker and bowler at any point while the match is
- * live. Called after a wicket to bring the next batter in, and between overs to name
- * the next bowler. Any field may be omitted.
+ * Set or change the striker, non-striker and bowler while the match is live. Called
+ * after a wicket to bring the next batter in, and between overs for the next bowler.
  */
 export const setPlayers = asyncHandler(async (req, res) => {
   const { strikerId, nonStrikerId, bowlerId } = req.body;
@@ -365,6 +361,9 @@ export const setResult = asyncHandler(async (req, res) => {
     match.seasonId,
     season?.matchRules ?? {},
   );
+
+  // A hand-set result completes the match, so the player figures move with it.
+  await scoringService.recomputeStats(match.seasonId);
 
   const io = req.app.get("io");
   if (io) {

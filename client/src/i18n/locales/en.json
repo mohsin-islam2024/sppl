@@ -110,7 +110,18 @@
     "noBallsYet": "No balls bowled yet",
     "ballFallback": "Ball",
     "viewMatch": "View match",
-    "watchLive": "Watch live"
+    "watchLive": "Watch live",
+    "vs": "vs",
+    "resultLine": "{{text}}",
+    "resultPending": "Result not in yet",
+    "toss": "Toss: {{team}} — {{decision}}",
+    "playerOfMatch": "Player of the match",
+    "league": "League",
+    "semiFinal": "Semi-final",
+    "final": "Final",
+    "bat": "batting",
+    "target": "Target: {{runs}}",
+    "bowl": "bowling"
   },
   "team": {
     "squad": "Squad",
@@ -174,7 +185,13 @@
     "compare": "Compare players",
     "noStatsTitle": "No statistics yet",
     "noStatsBody": "This player's figures will appear here once matches are played.",
-    "seoDescription": "{{player}} — {{team}} player statistics."
+    "seoDescription": "{{player}} — {{team}} player statistics.",
+    "careerTotals": "Career totals",
+    "careerSeasons": "Played across {{count}} seasons",
+    "wickets": "Wickets"
+    
+
+
   },
   "auth": {
     "loginTitle": "Log in",
@@ -394,6 +411,45 @@
     "ruleTie": "Tie / no result: 1 point",
     "ruleTiebreak": "Teams level on points are separated by net run rate."
   },
+  "scorecard": {
+  "notStarted": "This match has not started yet",
+  "inningsNo": "Innings {{n}}",
+  "batting": "Batting",
+  "bowling": "Bowling",
+  "batter": "Batter",
+  "bowler": "Bowler",
+  "runs": "R",
+  "balls": "B",
+  "fours": "4s",
+  "sixes": "6s",
+  "sr": "SR",
+  "overs": "Overs",
+  "oversShort": "ov",
+  "maidens": "M",
+  "wickets": "W",
+  "wides": "wides",
+  "widesShort": "WD",
+  "noBalls": "no-balls",
+  "noBallsShort": "NB",
+  "byes": "byes",
+  "legByes": "leg-byes",
+  "extras": "Extras",
+  "total": "Total",
+  "didNotBat": "Did not bat",
+  "economy": "ECO",
+  "notOut": "not out",
+  "out": "out",
+  "runsShort": "R",
+  "ballsShort": "B",
+  "foursShort": "4s",
+  "sixesShort": "6s",
+  "srShort": "SR",
+  "maidensShort": "M",
+  "wicketsShort": "W",
+  "economyShort": "ECO"
+
+
+},
   "table": {
     "caption": "Points table",
     "team": "Team",

@@ -262,15 +262,19 @@ export async function buildScorecard(match) {
 
   // Gather every player referenced anywhere on the card.
   const playerIds = new Set();
-  for (const entry of innings) {
-    for (const line of entry.batting ?? [])
-      playerIds.add(String(line.playerId));
-    for (const line of entry.bowling ?? [])
-      playerIds.add(String(line.playerId));
-    if (line.dismissedByPlayerId)
-      playerIds.add(String(line.dismissedByPlayerId));
-    if (line.fielderPlayerId) playerIds.add(String(line.fielderPlayerId));
-  }
+    for (const entry of innings) {
+      for (const line of entry.batting ?? []) {
+        playerIds.add(String(line.playerId));
+        if (line.dismissedByPlayerId)
+          playerIds.add(String(line.dismissedByPlayerId));
+        if (line.fielderPlayerId) playerIds.add(String(line.fielderPlayerId));
+      }
+
+      for (const line of entry.bowling ?? []) {
+        playerIds.add(String(line.playerId));
+      }
+    }
+
 
   const players = await Player.find({ _id: { $in: [...playerIds] } })
     .select("_id fullName jerseyName jerseyNo isCaptain")

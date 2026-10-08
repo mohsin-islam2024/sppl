@@ -27,6 +27,7 @@ const Teams = lazy(() => import('../pages/public/Teams.jsx'));
 const TeamDetail = lazy(() => import('../pages/public/TeamDetail.jsx'));
 const Players = lazy(() => import('../pages/public/Players.jsx'));
 const PlayerDetail = lazy(() => import('../pages/public/PlayerDetail.jsx'));
+const MatchDetail = lazy(() => import('../pages/public/MatchDetail.jsx'));
 const ComparePlayers = lazy(() => import('../pages/public/ComparePlayers.jsx'));
 const Stats = lazy(() => import('../pages/public/Stats.jsx'));
 const Gallery = lazy(() => import('../pages/public/Gallery.jsx'));
@@ -62,6 +63,7 @@ export default function AppRoutes() {
             <Route path="teams/:slug" element={<TeamDetail />} />
             <Route path="players" element={<Players />} />
             <Route path="players/:id" element={<PlayerDetail />} />
+            <Route path="matches/:id" element={<MatchDetail />} />
             <Route path="compare" element={<ComparePlayers />} />
             <Route path="stats" element={<Stats />} />
             <Route path="gallery" element={<Gallery />} />

@@ -7,6 +7,7 @@ import { Sponsor } from "../models/Sponsor.js";
 import { Award } from "../models/Award.js";
 import { Announcement } from "../models/Announcement.js";
 import { PlayerStat } from "../models/PlayerStat.js";
+import { Player } from "../models/Player.js";
 import { resolveSeason } from "../services/seasonService.js";
 import ApiError from "../utils/ApiError.js";
 
@@ -38,9 +39,7 @@ export const listNews = asyncHandler(async (req, res) => {
       .limit(limit)
       // The list does not need the article body; sending it would multiply the
       // payload by roughly twenty for text nobody reads until they open the article.
-      .select(
-        "slug titleBn titleEn excerptBn excerptEn coverUrl tags publishedAt views seasonId",
-      )
+      .select("title slug excerpt coverImageUrl publishedAt")
       .lean(),
     News.countDocuments(filter),
   ]);
@@ -50,15 +49,13 @@ export const listNews = asyncHandler(async (req, res) => {
 
 /** GET /api/v1/news/:slug */
 export const getNews = asyncHandler(async (req, res) => {
-  const article = await News.findOneAndUpdate(
-    { slug: String(req.params.slug).toLowerCase(), published: true },
-    // View count is a courtesy counter; a failed increment must not fail the read.
-    { $inc: { views: 1 } },
-    { new: true },
-  ).lean();
+  const item = await News.findOne({
+    slug: req.params.slug,
+    published: true,
+  }).lean();
+  if (!item) throw ApiError.notFound("News item not found");
 
-  if (!article) throw ApiError.notFound("Article not found");
-  res.status(200).json(ok(article));
+  res.status(200).json(ok(item));
 });
 
 /* ------------------------------------------------------------------ *
@@ -69,15 +66,13 @@ export const getNews = asyncHandler(async (req, res) => {
 export const listGallery = asyncHandler(async (req, res) => {
   const { page, limit } = req.query;
 
-  const filter = { active: true };
+  const filter = { published: true };
   const season = await resolveSeason(req.query.season);
   if (season) filter.seasonId = season._id;
-  if (req.query.matchId) filter.matchId = req.query.matchId;
-  if (req.query.type) filter.type = req.query.type;
 
   const [items, total] = await Promise.all([
     Gallery.find(filter)
-      .sort({ order: 1, capturedAt: -1, createdAt: -1 })
+      .sort({ takenAt: -1, createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
@@ -86,10 +81,6 @@ export const listGallery = asyncHandler(async (req, res) => {
 
   res.status(200).json(paginated({ items, total, page, limit }));
 });
-
-/* ------------------------------------------------------------------ *
- * Videos
- * ------------------------------------------------------------------ */
 
 /** GET /api/v1/videos */
 export const listVideos = asyncHandler(async (req, res) => {
@@ -101,7 +92,7 @@ export const listVideos = asyncHandler(async (req, res) => {
 
   const [items, total] = await Promise.all([
     Video.find(filter)
-      .sort({ order: 1, publishedAt: -1 })
+      .sort({ publishedAt: -1, createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
@@ -115,39 +106,18 @@ export const listVideos = asyncHandler(async (req, res) => {
  * Sponsors
  * ------------------------------------------------------------------ */
 
-/**
- * GET /api/v1/sponsors
- *
- * Grouped by tier on the server: the tiers have a fixed display order (title first,
- * partners last) and encoding that order in one place stops each new consumer from
- * inventing its own.
- */
+/** GET /api/v1/sponsors */
 export const listSponsors = asyncHandler(async (req, res) => {
-  const filter = { active: true };
   const season = await resolveSeason(req.query.season);
+
+  const filter = { active: true };
   if (season) filter.seasonId = season._id;
 
-  const sponsors = await Sponsor.find(filter)
+  const items = await Sponsor.find(filter)
     .sort({ tier: 1, order: 1, name: 1 })
     .lean();
 
-  const TIER_ORDER = ["TITLE", "PLATINUM", "GOLD", "PARTNER"];
-
-  const byTier = new Map();
-  for (const sponsor of sponsors) {
-    if (!byTier.has(sponsor.tier)) byTier.set(sponsor.tier, []);
-    byTier.get(sponsor.tier).push(sponsor);
-  }
-
-  res.status(200).json(
-    ok({
-      groups: TIER_ORDER.filter((tier) => byTier.has(tier)).map((tier) => ({
-        tier,
-        sponsors: byTier.get(tier),
-      })),
-      all: sponsors,
-    }),
-  );
+  res.status(200).json(ok(items));
 });
 
 /* ------------------------------------------------------------------ *
@@ -156,81 +126,74 @@ export const listSponsors = asyncHandler(async (req, res) => {
 
 /** GET /api/v1/awards */
 export const listAwards = asyncHandler(async (req, res) => {
+  const { page, limit } = req.query;
+
+  const filter = {};
   const season = await resolveSeason(req.query.season);
-  if (!season) throw ApiError.notFound("No season found");
+  if (season) filter.seasonId = season._id;
 
-  const filter = { seasonId: season._id };
-  if (req.query.matchId) filter.matchId = req.query.matchId;
+  const [items, total] = await Promise.all([
+    Award.find(filter)
+      .sort({ awardedAt: -1, createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .populate("playerId", "fullName jerseyName jerseyNo photoUrl")
+      .populate("teamId", "name shortName slug logoUrl themeColor")
+      .lean(),
+    Award.countDocuments(filter),
+  ]);
 
-  const awards = await Award.find(filter)
-    .sort({ type: 1, createdAt: -1 })
-    .populate("winnerPlayerId", "fullName jerseyName jerseyNo photoUrl")
-    .populate("winnerTeamId", "name shortName slug logoUrl themeColor")
-    .lean();
+  const shaped = items.map((award) => ({
+    id: award._id,
+    title: award.title,
+    description: award.description,
+    category: award.category,
+    awardedAt: award.awardedAt,
+    imageUrl: award.imageUrl ?? "",
+    player: award.playerId
+      ? {
+          id: award.playerId._id,
+          fullName: award.playerId.fullName,
+          jerseyName: award.playerId.jerseyName,
+          jerseyNo: award.playerId.jerseyNo,
+          photoUrl: award.playerId.photoUrl ?? "",
+        }
+      : null,
+    team: award.teamId
+      ? {
+          id: award.teamId._id,
+          name: award.teamId.name,
+          shortName: award.teamId.shortName,
+          slug: award.teamId.slug,
+          logoUrl: award.teamId.logoUrl ?? "",
+          themeColor: award.teamId.themeColor ?? "",
+        }
+      : null,
+  }));
 
-  const AWARD_ORDER = [
-    "CHAMPION",
-    "RUNNER_UP",
-    "MAN_OF_THE_TOURNAMENT",
-    "BEST_BATTER",
-    "BEST_BOWLER",
-    "BEST_FIELDER",
-    "MAN_OF_THE_MATCH",
-    "PARTICIPATION_MEDAL",
-  ];
-
-  const sorted = [...awards].sort(
-    (a, b) => AWARD_ORDER.indexOf(a.type) - AWARD_ORDER.indexOf(b.type),
-  );
-
-  res.status(200).json(ok(sorted));
+  res.status(200).json(paginated({ items: shaped, total, page, limit }));
 });
 
 /* ------------------------------------------------------------------ *
  * Announcements
  * ------------------------------------------------------------------ */
 
-/**
- * GET /api/v1/announcements
- *
- * Only live notices: active, not expired, and belonging to a season that has not
- * finished. An announcement from last year's tournament is history, not news, and
- * showing it in the ticker would be actively misleading.
- */
+/** GET /api/v1/announcements */
 export const listAnnouncements = asyncHandler(async (req, res) => {
   const season = await resolveSeason(req.query.season);
-  if (!season) {
-    res.status(200).json(ok([]));
-    return;
-  }
 
-  // Completed seasons keep their notices for the record but not for the ticker,
-  // unless the caller explicitly asks for the archive.
-  if (season.status === "COMPLETED" && req.query.includeArchive !== "true") {
-    res.status(200).json(ok([]));
-    return;
-  }
-
-  const now = new Date();
   const filter = {
-    seasonId: season._id,
     active: true,
-    $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }],
+    $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }],
   };
-
-  const PRIORITY_ORDER = { URGENT: 0, IMPORTANT: 1, NORMAL: 2 };
+  if (season) filter.seasonId = season._id;
 
   const items = await Announcement.find(filter)
-    .sort({ createdAt: -1 })
+    .sort({ priority: -1, createdAt: -1 })
     .limit(20)
     .lean();
 
-  const sorted = [...items].sort(
-    (a, b) =>
-      (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9),
-  );
-
-  res.status(200).json(ok(sorted));
+  res.status(200).json(ok(items));
 });
 
 /* ------------------------------------------------------------------ *
@@ -284,6 +247,29 @@ export const getSeasonStats = asyncHandler(async (req, res) => {
       ),
     ]);
 
+  // PlayerStat stores the id, not the name. The player's own document is where the
+  // name, photo and jersey number live. Joined once here so the leaderboard can show
+  // who a row is, rather than making the page fetch many names one at a time.
+  const allRows = [
+    ...runs,
+    ...wickets,
+    ...strikeRate,
+    ...economy,
+    ...fielding,
+    ...awards,
+  ];
+  const playerIds = [
+    ...new Set(allRows.map((row) => String(row.playerId)).filter(Boolean)),
+  ];
+
+  const players = await Player.find({ _id: { $in: playerIds } })
+    .select("fullName jerseyName jerseyNo photoUrl")
+    .lean();
+
+  const playerById = new Map(
+    players.map((player) => [String(player._id), player]),
+  );
+
   // Strike rate and economy cannot be sorted in MongoDB without an aggregation over
   // computed fields, so the top candidates are fetched and ranked here. The limits
   // above bound that to 50 rows each, which is nothing.
@@ -308,25 +294,39 @@ export const getSeasonStats = asyncHandler(async (req, res) => {
     ok({
       seasonId: season._id,
       seasonSlug: season.slug,
-      mostRuns: runs.map((row) => toLeaderboardRow(row, "runs")),
-      mostWickets: wickets.map((row) => toLeaderboardRow(row, "wickets")),
-      bestStrikeRate: byStrikeRate.map((row) =>
-        toLeaderboardRow(row, "strikeRate"),
+      mostRuns: runs.map((row) => toLeaderboardRow(row, "runs", playerById)),
+      mostWickets: wickets.map((row) =>
+        toLeaderboardRow(row, "wickets", playerById),
       ),
-      bestEconomy: byEconomy.map((row) => toLeaderboardRow(row, "economy")),
-      bestFielding: fielding.map((row) => toLeaderboardRow(row, "fielding")),
-      mostAwards: awards.map((row) => toLeaderboardRow(row, "awards")),
+      bestStrikeRate: byStrikeRate.map((row) =>
+        toLeaderboardRow(row, "strikeRate", playerById),
+      ),
+      bestEconomy: byEconomy.map((row) =>
+        toLeaderboardRow(row, "economy", playerById),
+      ),
+      bestFielding: fielding.map((row) =>
+        toLeaderboardRow(row, "fielding", playerById),
+      ),
+      mostAwards: awards.map((row) =>
+        toLeaderboardRow(row, "awards", playerById),
+      ),
     }),
   );
 });
 
 /** Trim a stats document down to what a leaderboard table displays. */
-function toLeaderboardRow(stat, kind) {
+function toLeaderboardRow(stat, kind, playerById = new Map()) {
   const team =
     stat.teamId && typeof stat.teamId === "object" ? stat.teamId : null;
 
+  const player = playerById.get(String(stat.playerId)) ?? null;
+
   const base = {
     playerId: stat.playerId,
+    playerName: player?.jerseyName || player?.fullName || "",
+    fullName: player?.fullName || "",
+    jerseyNo: player?.jerseyNo ?? null,
+    photoUrl: player?.photoUrl ?? "",
     matches: stat.matches ?? 0,
     team: team
       ? {
@@ -354,11 +354,13 @@ function toLeaderboardRow(stat, kind) {
             ? round((stat.runs / stat.ballsFaced) * 100, 2)
             : null,
       };
+
     case "wickets":
       return {
         ...base,
         wickets: stat.wickets ?? 0,
         ballsBowled: stat.ballsBowled ?? 0,
+        overs: oversFromBalls(stat.ballsBowled ?? 0),
         runsConceded: stat.runsConceded ?? 0,
         economy:
           stat.ballsBowled > 0
@@ -369,6 +371,7 @@ function toLeaderboardRow(stat, kind) {
             ? `${stat.bestBowlingWickets ?? 0}/${stat.bestBowlingRuns}`
             : null,
       };
+
     case "strikeRate":
       return {
         ...base,
@@ -376,14 +379,17 @@ function toLeaderboardRow(stat, kind) {
         ballsFaced: stat.ballsFaced ?? 0,
         strikeRate: round(stat.strikeRate, 2),
       };
+
     case "economy":
       return {
         ...base,
         wickets: stat.wickets ?? 0,
         ballsBowled: stat.ballsBowled ?? 0,
+        overs: oversFromBalls(stat.ballsBowled ?? 0),
         runsConceded: stat.runsConceded ?? 0,
         economy: round(stat.economy, 2),
       };
+
     case "fielding":
       return {
         ...base,
@@ -393,11 +399,23 @@ function toLeaderboardRow(stat, kind) {
         total:
           (stat.catches ?? 0) + (stat.runOuts ?? 0) + (stat.stumpings ?? 0),
       };
+
     case "awards":
       return { ...base, playerOfMatchAwards: stat.playerOfMatchAwards ?? 0 };
+
     default:
       return base;
   }
+}
+
+/**
+ * Cricket over notation from legal balls.
+ *
+ * 8 balls is 1.2 overs, not 1.3. A decimal conversion would be wrong for cricket.
+ */
+function oversFromBalls(balls = 0) {
+  const safe = Math.max(0, Math.floor(balls || 0));
+  return `${Math.floor(safe / 6)}.${safe % 6}`;
 }
 
 function round(value, decimals = 2) {

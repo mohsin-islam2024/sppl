@@ -3,6 +3,7 @@ import { Ball } from "../models/Ball.js";
 import { Player } from "../models/Player.js";
 import { PointsTable } from "../models/PointsTable.js";
 import { resolveSeason } from "./seasonService.js";
+import { recomputeSeasonStats } from "./statsService.js";
 import * as engine from "./scoringEngine.js";
 import {
   EXTRA_TYPE,
@@ -18,7 +19,8 @@ import ApiError from "../utils/ApiError.js";
  * The engine (`scoringEngine.js`) contains the pure cricket rules and knows nothing
  * about the database. This file is the other half: it loads the match, applies the
  * engine's verdict, writes the delivery and keeps every derived structure — the
- * innings totals, the batting and bowling lines, the points table — in step.
+ * innings totals, the batting and bowling lines, the points table and the player
+ * statistics — in step.
  *
  * It is a SEQUENTIAL service by necessity. Two balls recorded at once would both read
  * the same "balls before" value and both write the same position, corrupting the
@@ -38,11 +40,7 @@ import ApiError from "../utils/ApiError.js";
  *   - at the end of an over, to name the next bowler
  *
  * One function handles all three because the operation is identical: clear the old
- * markers, set the new ones. Treating the opening pair as a special case would mean
- * two code paths that can drift apart.
- *
- * Any field may be omitted. Omitting one leaves that slot untouched, which is what
- * lets the client send only the batter who just came in.
+ * markers, set the new ones.
  */
 export async function setPlayers({
   matchId,
@@ -84,7 +82,6 @@ export async function setPlayers({
     );
   }
 
-  // A dismissed batter cannot return to the crease, so they are never a valid pick.
   const battingLine = (id) =>
     (innings.batting ?? []).find(
       (line) => String(line.playerId) === String(id),
@@ -101,7 +98,6 @@ export async function setPlayers({
     if (line.isOut) throw ApiError.badRequest(`The ${label} is already out`);
   }
 
-  // Apply the batting changes.
   if (strikerId || nonStrikerId) {
     for (const line of innings.batting ?? []) {
       if (line.isOut) {
@@ -117,7 +113,7 @@ export async function setPlayers({
       } else if (nonStrikerId && id === String(nonStrikerId)) {
         line.isStriker = false;
         line.hasBatted = true;
-      } else if (strikerId || nonStrikerId) {
+      } else {
         // Only clear the marker when a batting change was actually sent — otherwise
         // a bowler-only update would wipe the striker.
         line.isStriker = false;
@@ -125,7 +121,6 @@ export async function setPlayers({
     }
   }
 
-  // Apply the bowling change.
   if (bowlerId) {
     const isInBowlingSide = (innings.bowling ?? []).some(
       (line) => String(line.playerId) === String(bowlerId),
@@ -286,8 +281,7 @@ export async function recordBall({ matchId, delivery, userId }) {
   }
 
   // A wicket removes whoever was dismissed and leaves the crease empty for them.
-  // The scorer then names the incoming batter through setPlayers; until they do the
-  // strike card reads "—", which is honest rather than guessing a replacement.
+  // The scorer then names the incoming batter through setPlayers.
   if (delivery.isWicket && delivery.dismissedPlayerId) {
     for (const line of innings.batting ?? []) {
       if (String(line.playerId) === String(delivery.dismissedPlayerId)) {
@@ -321,6 +315,13 @@ export async function recordBall({ matchId, delivery, userId }) {
     await refreshPointsTable(match.seasonId, rules);
   }
 
+  // Player statistics are rebuilt once the match is over, not on every delivery. A
+  // season is small enough to recompute from scratch, and rebuilding is what makes
+  // an undo safe: the figures are derived, never accumulated.
+  if (match.status === MATCH_STATUS.COMPLETED) {
+    await recomputeSeasonStats(match.seasonId);
+  }
+
   return {
     ball: ball.toObject(),
     match,
@@ -332,10 +333,6 @@ export async function recordBall({ matchId, delivery, userId }) {
 
 /**
  * Undo the last delivery.
- *
- * Deleting a ball cannot simply subtract its runs: the free-hit flag, the strike,
- * the bowler's over count and a possible innings end all depend on the sequence. So
- * the innings is REBUILT from the remaining deliveries.
  */
 export async function undoLastBall({ matchId, innings: requestedInnings }) {
   const match = await Match.findById(matchId);
@@ -376,6 +373,10 @@ export async function undoLastBall({ matchId, innings: requestedInnings }) {
 
   await match.save();
   await refreshPointsTable(match.seasonId, season.matchRules ?? {});
+
+  // An undo can take a finished match back to live, so the season's player
+  // statistics have to move with it — otherwise the figures keep the undone runs.
+  await recomputeSeasonStats(match.seasonId);
 
   return { undoneBall: lastBall, match };
 }
@@ -516,8 +517,6 @@ export function openSecondInnings(match, rules) {
     wickets: 0,
     balls: 0,
     extras: { wides: 0, noBalls: 0, byes: 0, legByes: 0 },
-    // Nobody is at the crease yet — the scorer names the opening pair for this
-    // innings through setPlayers, exactly as they did for the first.
     batting: battingOrder.map((playerId) => ({
       playerId,
       isStriker: false,
@@ -814,4 +813,5 @@ export default {
   refreshPointsTable,
   closeMatch,
   setPlayers,
+  recomputeStats: recomputeSeasonStats,
 };

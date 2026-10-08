@@ -110,7 +110,18 @@
     "noBallsYet": "এখনো কোনো বল হয়নি",
     "ballFallback": "বল",
     "viewMatch": "ম্যাচ দেখুন",
-    "watchLive": "লাইভ দেখুন"
+    "watchLive": "লাইভ দেখুন",
+    "vs": "বনাম",
+    "resultLine": "{{text}}",
+    "resultPending": "ফলাফল এখনো আসেনি",
+    "toss": "টস: {{team}} — {{decision}}",
+    "playerOfMatch": "ম্যান অব দ্য ম্যাচ",
+    "league": "লিগ",
+    "semiFinal": "সেমি-ফাইনাল",
+    "final": "ফাইনাল",
+    "bat": "ব্যাটিং",
+    "target": "লক্ষ্য: {{runs}} রান",
+    "bowl": "বোলিং"
   },
   "team": {
     "squad": "স্কোয়াড",
@@ -174,7 +185,13 @@
     "compare": "খেলোয়াড় তুলনা",
     "noStatsTitle": "এখনো কোনো পরিসংখ্যান নেই",
     "noStatsBody": "ম্যাচ শুরু হলে খেলোয়াড়ের পরিসংখ্যান এখানে দেখা যাবে।",
-    "seoDescription": "{{player}} — {{team}}-এর খেলোয়াড়ের পরিসংখ্যান।"
+    "seoDescription": "{{player}} — {{team}}-এর খেলোয়াড়ের পরিসংখ্যান।",
+    "careerTotals": "ক্যারিয়ার পরিসংখ্যান",
+    "careerSeasons": "{{count}}টি সিজনে খেলেছেন",
+    "wickets": "উইকেট"
+
+
+
   },
   "auth": {
     "loginTitle": "লগইন করুন",
@@ -395,6 +412,45 @@
     "ruleTie": "টাই / নো রেজাল্ট: ১ পয়েন্ট",
     "ruleTiebreak": "সমান পয়েন্ট হলে নেট রান রেট দেখে অবস্থান ঠিক হয়।"
   },
+  "scorecard": {
+  "notStarted": "এই ম্যাচ এখনো শুরু হয়নি",
+  "inningsNo": "ইনিংস {{n}}",
+  "batting": "ব্যাটিং",
+  "bowling": "বোলিং",
+  "batter": "ব্যাটসম্যান",
+  "bowler": "বোলার",
+  "runs": "রান",
+  "balls": "বল",
+  "fours": "৪",
+  "sixes": "৬",
+  "sr": "স্ট্রাইক রেট",
+  "overs": "ওভার",
+  "oversShort": "ওভার",
+  "maidens": "মেডেন",
+  "wickets": "উইকেট",
+  "wides": "ওয়াইড",
+  "widesShort": "WD",
+  "noBalls": "নো-বল",
+  "noBallsShort": "NB",
+  "byes": "বাই",
+  "legByes": "লেগ-বাই",
+  "extras": "অতিরিক্ত",
+  "total": "মোট",
+  "didNotBat": "ব্যাট করেনি",
+  "economy": "ইকোনমি",
+  "notOut": "আউট হননি",
+  "out": "আউট",
+  "runsShort": "রান",
+  "ballsShort": "বল",
+  "foursShort": "৪",
+  "sixesShort": "৬",
+  "srShort": "SR",
+  "maidensShort": "মে",
+  "wicketsShort": "উই",
+  "economyShort": "ইকো"
+
+
+},
   "table": {
     "caption": "পয়েন্ট টেবিল",
     "team": "দল",
