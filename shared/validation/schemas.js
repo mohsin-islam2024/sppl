@@ -281,10 +281,14 @@ export const recordBallSchema = z
       path: ["runsBye"],
     },
   )
-  .refine((b) => !(b.extraType && b.runsBat > 0), {
+  // Off the bat is impossible only on a WIDE, which by definition is a ball the
+  // batter could not score off. A NO_BALL is the opposite case — the batter struck
+  // it and the runs are theirs, so runsBat is expected there.
+  .refine((b) => !(b.extraType === EXTRA_TYPE.WIDE && b.runsBat > 0), {
     message: "A wide cannot also carry runs off the bat",
     path: ["runsBat"],
   });
+
 
 export const undoBallSchema = z.object({
   matchId: objectId,

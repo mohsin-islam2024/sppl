@@ -383,8 +383,20 @@
       "RUN_OUT": "Run out",
       "STUMPED": "Stumped",
       "HIT_WICKET": "Hit wicket",
-      "RETIRED": "Retired"
-    }
+      "RETIRED": "Retired",
+      "SIX_OUT": "6 out"
+    },
+    "wideExtraPrompt": "How many extra runs did the batters take on the wide? (not credited to the batter)",
+    "noBallExtraPrompt": "How many runs did the batter score off the no-ball?",
+    "extraTotal": "{{total}} runs total ({{base}} + {{extra}})",
+    "recordDelivery": "Record delivery",
+    "sixOutNote": "A six-out scores no runs — it is recorded as a dismissal only.",
+    "freeHitRunOutOnly": "On a free hit only a run out is possible.",
+    "creaseIncomplete": "Set the striker, non-striker and bowler first.",
+    "inningsMissing": "This match shows as live but has no innings data. The match needs to be restarted.",
+    "byeExtraPrompt": "How many bye runs were run?"
+
+
 
   },
   "fixtures": {

@@ -6,6 +6,7 @@ import MatchStatusBadge from '../../components/cricket/MatchStatusBadge.jsx';
 import ConfirmDialog from '../../components/admin/ConfirmDialog.jsx';
 import StartMatchForm from '../../components/admin/StartMatchForm.jsx';
 import WicketSheet from '../../components/admin/WicketSheet.jsx';
+import ExtraRunSheet from '../../components/admin/ExtraRunSheet.jsx';
 import PlayerPickerSheet from '../../components/admin/PlayerPickerSheet.jsx';
 import { ErrorState } from '../../components/common/Skeleton.jsx';
 import {
@@ -32,293 +33,255 @@ import { cn } from '../../utils/cn.js';
  *     scorer more taps than any other control on the page.
  *   - nothing is optimistic. The score shown is always the score the server confirmed.
  *
- * A wicket opens a second step: the dismissal sheet, then the incoming batter. The
- * batting side cannot continue with an empty crease, and leaving it empty is how the
- * very first version of this screen dead-ended.
+ * A wicket opens a second step: the dismissal sheet, then the incoming batter.
+ *
+ * An extra opens its OWN dialog, because a wide and a no-ball each carry runs on top
+ * of their base value, and the two differ: a wide's extras are byes and never reach
+ * the batter, a no-ball's runs off the bat do.
+ *
+ * The delivery payload names the three players involved. The ball record is
+ * append-only and has to stand on its own, so the crease slots — which this console
+ * already knows — travel with every ball.
  */
 export default function LiveScoringMatch() {
   const { t } = useTranslation();
   const { matchId } = useParams();
 
-  const [banner, setBanner] = useState(null);
-  const [confirmEnd, setConfirmEnd] = useState(false);
-  const [wicketOpen, setWicketOpen] = useState(false);
-  const [picker, setPicker] = useState(null);
+  const { data, isLoading, isError, error, refetch } = useScoringContext(matchId);
 
-  const contextQuery = useScoringContext(matchId);
+  const [wicketOpen, setWicketOpen] = useState(false);
+  const [extraSheet, setExtraSheet] = useState(null);
+  const [picker, setPicker] = useState(null);
+  const [confirmEnd, setConfirmEnd] = useState(false);
+  const [banner, setBanner] = useState(null);
+
   const recordBall = useRecordBall(matchId);
   const undoBall = useUndoBall(matchId);
   const startMatch = useStartMatch(matchId);
   const setPlayers = useSetPlayers(matchId);
   const endInnings = useEndInnings(matchId);
 
-  const context = contextQuery.data;
-  const match = context?.match;
-  const innings = context?.currentInnings ?? null;
+  const match = data?.match ?? null;
+  const innings = data?.currentInnings ?? null;
+  const strikerLine = data?.striker ?? null;
+  const nonStrikerLine = data?.nonStriker ?? null;
+  const bowlerLine = data?.bowler ?? null;
 
-  /** Every player in both playing squads, keyed by id, so names resolve quickly. */
-  const playerById = useMemo(() => {
-    const map = new Map();
-    for (const squad of match?.playingSquads ?? []) {
-      for (const player of squad.playerIds ?? []) {
-        map.set(String(player._id ?? player.id), player);
-      }
-    }
-    return map;
-  }, [match]);
+  const recentBalls = useMemo(
+    () => match?.innings?.[match.currentInnings]?.recentBalls ?? [],
+    [match],
+  );
 
-  const strikerLine = innings?.batting?.find((line) => line.isStriker) ?? null;
-  const nonStrikerLine =
-    innings?.batting?.find((line) => line.hasBatted && !line.isOut && !line.isStriker) ?? null;
-  const bowlerLine = innings?.bowling?.find((line) => line.isBowling) ?? null;
+  const canScore =
+    match?.status === 'LIVE' &&
+    !innings?.isComplete &&
+    Boolean(strikerLine) &&
+    Boolean(bowlerLine);
 
-  /** Candidates for each slot, as settled by the innings state. */
-  const battingSquadIds = useMemo(() => {
+  const availableBatters = useMemo(() => {
     const squad = match?.playingSquads?.find(
       (entry) => String(entry.teamId) === String(innings?.battingTeamId),
     );
-    return (squad?.playerIds ?? []).map((player) => player._id ?? player.id);
+    const lines = innings?.batting ?? [];
+    return (squad?.playerIds ?? []).filter(
+      (player) =>
+        !lines.find(
+          (line) => String(line.playerId) === String(player.id ?? player._id),
+        )?.hasBatted,
+    );
   }, [match, innings]);
 
-  const bowlingSquadIds = useMemo(() => {
-    const squad = match?.playingSquads?.find(
-      (entry) => String(entry.teamId) === String(innings?.bowlingTeamId),
-    );
-    return (squad?.playerIds ?? []).map((player) => player._id ?? player.id);
-  }, [match, innings]);
-
-  /** Batters still able to bat: not out, and not already at the crease. */
-  const availableBatters = useMemo(() => {
-    return (innings?.batting ?? [])
-      .filter((line) => !line.isOut)
-      .map((line) => playerById.get(String(line.playerId)))
-      .filter(Boolean);
-  }, [innings, playerById]);
-
-  const availableBowlers = useMemo(
-    () => bowlingSquadIds.map((id) => playerById.get(String(id))).filter(Boolean),
-    [bowlingSquadIds, playerById],
-  );
-
-  if (contextQuery.isError) {
-    return (
-      <div className="container-page py-12">
-        <ErrorState message={contextQuery.error?.message} onRetry={contextQuery.refetch} />
-      </div>
-    );
-  }
-
-  if (contextQuery.isLoading || !match) {
-    return (
-      <div className="container-page py-12">
-        <div className="card p-8 text-center text-sm text-content-muted">{t('common.loading')}</div>
-      </div>
-    );
-  }
-
-  // Not started yet: the two nines, who bats first, and the opening pair.
-  if (match.status === 'UPCOMING' || match.status === 'TOSS') {
-    return (
-      <>
-        <SEO title={t('admin.liveScoring')} noIndex />
-        <StartMatchForm match={match} onStart={startMatch} onDone={() => contextQuery.refetch()} />
-      </>
-    );
-  }
-
-  const canScore = match.status === 'LIVE';
-
+  /**
+   * Record one delivery.
+   *
+   * The three crease slots are filled in here rather than by each caller, so a run
+   * button, the extra sheet and the wicket sheet all produce the same complete
+   * payload without repeating themselves.
+   */
   const sendBall = async (spec) => {
-    if (!strikerLine || !bowlerLine) {
-      setBanner({ tone: 'error', text: t('scoring.selectPlayersFirst') });
+    setBanner(null);
+
+    const batterId = strikerLine?.playerId;
+    const nonStrikerId = nonStrikerLine?.playerId;
+    const bowlerId = bowlerLine?.playerId;
+
+    if (!batterId || !nonStrikerId || !bowlerId) {
+      setBanner({ tone: 'error', text: t('scoring.creaseIncomplete') });
       return;
     }
 
-    setBanner(null);
-
     try {
-        const result = await recordBall.mutateAsync({
-        // The API's validation middleware runs on the request BODY, and the schema
-        // requires matchId even though the route already carries it in the URL.
-        // Omitting it made every delivery fail with "Validation failed".
+      await recordBall.mutateAsync({
         matchId,
-        innings: match.currentInnings,
-        batterId: strikerLine.playerId,
-        nonStrikerId: nonStrikerLine?.playerId ?? strikerLine.playerId,
-        bowlerId: bowlerLine.playerId,
+        innings: match?.currentInnings ?? 0,
+        batterId,
+        nonStrikerId,
+        bowlerId,
+        // The striker faces the ball, so the striker is who is out unless the sheet
+        // named someone else — a run out can dismiss the non-striker.
+        dismissedPlayerId: spec.dismissedPlayerId ?? batterId,
         ...spec,
       });
-
-
-      if (result.matchCompleted) {
-        setBanner({ tone: 'success', text: t('scoring.matchCompleted') });
-      } else if (result.inningsEnded) {
-        setBanner({ tone: 'success', text: t('scoring.inningsEnded') });
-      }
-    } catch (error) {
-      setBanner({ tone: 'error', text: error?.message ?? t('common.error') });
-    }
-  };
-
-  const applyPlayers = async (payload) => {
-    setBanner(null);
-    try {
-      await setPlayers.mutateAsync(payload);
-      setPicker(null);
-    } catch (error) {
-      setBanner({ tone: 'error', text: error?.message ?? t('common.error') });
-      setPicker(null);
+    } catch (err) {
+      setBanner({ tone: 'error', text: err?.message ?? t('scoring.recordFailed') });
     }
   };
 
   const onUndo = async () => {
+    setBanner(null);
     try {
-      await undoBall.mutateAsync(match.currentInnings);
-      setBanner(null);
-    } catch (error) {
-      setBanner({ tone: 'error', text: error?.message ?? t('common.error') });
+      await undoBall.mutateAsync({ innings: match?.currentInnings });
+    } catch (err) {
+      setBanner({ tone: 'error', text: err?.message ?? t('scoring.undoFailed') });
     }
   };
 
-  const recentBalls = context.recentBalls ?? [];
-  const lastBall = recentBalls[0] ?? null;
+  if (isLoading) {
+    return (
+      <div className="container-page py-16">
+        <div className="card p-6">
+          <div className="h-6 w-48 animate-pulse rounded bg-surface-sunken" />
+        </div>
+      </div>
+    );
+  }
 
-  const runsNeeded =
-    match.currentInnings === 1 && innings?.target
-      ? Math.max(0, innings.target - (innings.runs ?? 0))
-      : null;
+  if (isError) {
+    return (
+      <div className="container-page py-16">
+        <ErrorState message={error?.message} onRetry={refetch} />
+      </div>
+    );
+  }
 
-  /**
-   * The next batter to bring in.
-   *
-   * The crease is empty after a wicket and the innings cannot continue without a
-   * striker, so this prompt is not optional — but it is a prompt rather than an
-   * automatic substitution, because the batting order is the scorer's call.
-   */
-  const strikerMissing = canScore && !strikerLine;
-  const bowlerMissing = canScore && !bowlerLine;
+  if (!match) {
+    return (
+      <div className="container-page py-16">
+        <ErrorState message={t('scoring.matchNotFound')} onRetry={refetch} />
+      </div>
+    );
+  }
 
-  return (
-    <>
-      <SEO title={t('admin.liveScoring')} noIndex />
-
-      <div className="mx-auto max-w-3xl pb-52">
-        {/* Header: score, overs, target */}
-        <header className="card p-4">
-          <div className="flex items-center justify-between gap-3">
-            <Link
-              to="/admin/live-scoring"
-              aria-label={t('common.back')}
-              className="flex h-9 w-9 items-center justify-center rounded-full text-content-muted transition hover:bg-surface-sunken"
-            >
-              ←
-            </Link>
-
-            <div className="min-w-0 flex-1 text-center">
-              <p className="truncate text-sm font-semibold text-content-primary">
-                {match.teamAId?.name} vs {match.teamBId?.name}
-              </p>
-              <p className="text-2xs text-content-muted">
-                {t('match.matchNo', { number: toBengaliDigits(match.matchNo) })}
-              </p>
-            </div>
-
-            <MatchStatusBadge status={match.status} />
-          </div>
-
-          <div className="mt-4 flex items-end justify-center gap-3">
-            <span className="tabular font-display text-4xl font-extrabold text-content-primary">
-              {toBengaliDigits(innings?.runs ?? 0)}/{toBengaliDigits(innings?.wickets ?? 0)}
-            </span>
-            <span className="tabular pb-1 text-sm text-content-muted">
-              ({toBengaliDigits(formatOvers(innings?.balls ?? 0))})
-            </span>
-          </div>
-
-          {runsNeeded !== null && (
-            <p className="mt-2 text-center text-sm font-semibold text-gold">
-              {t('scoring.needRuns', { runs: toBengaliDigits(runsNeeded) })}
-            </p>
-          )}
-
-          {context.freeHitPending && (
-            <p className="mt-3 rounded-lg bg-gold/15 py-2 text-center text-sm font-bold text-gold-dark">
-              {t('scoring.freeHit')}
-            </p>
-          )}
-        </header>
-
-        {/* Who is in — each card opens a picker */}
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <PlayerSlot
-            label={t('scoring.striker')}
-            name={strikerLine?.player?.jerseyName || strikerLine?.player?.fullName}
-            tone="brand"
-            detail={
-              strikerLine
-                ? `${toBengaliDigits(strikerLine.runs ?? 0)} (${toBengaliDigits(strikerLine.balls ?? 0)})`
-                : null
-            }
-            onClick={canScore ? () => setPicker('striker') : undefined}
-            actionLabel={t('scoring.change')}
-          />
-          <PlayerSlot
-            label={t('scoring.nonStriker')}
-            name={nonStrikerLine?.player?.jerseyName || nonStrikerLine?.player?.fullName}
-            tone="muted"
-            detail={
-              nonStrikerLine
-                ? `${toBengaliDigits(nonStrikerLine.runs ?? 0)} (${toBengaliDigits(nonStrikerLine.balls ?? 0)})`
-                : null
-            }
-            onClick={canScore ? () => setPicker('nonStriker') : undefined}
-            actionLabel={t('scoring.change')}
+  // A match with no innings yet is one that has not started. A LIVE match with no
+  // innings is a different problem — the state is inconsistent, and sending the
+  // scorer back to the start form (which the server then rejects) would loop.
+  if (!innings) {
+    if (match.status === 'LIVE') {
+      return (
+        <div className="container-page py-10">
+          <SEO title={t('scoring.title')} path={`/admin/live-scoring/${matchId}`} />
+          <ErrorState
+            message={t('scoring.inningsMissing')}
+            onRetry={refetch}
           />
         </div>
+      );
+    }
 
-        <div className="mt-3">
-          <PlayerSlot
-            label={t('scoring.bowler')}
-            name={bowlerLine?.player?.jerseyName || bowlerLine?.player?.fullName}
-            tone="gold"
-            detail={
-              bowlerLine
-                ? t('scoring.bowlerFigures', {
-                    overs: toBengaliDigits(formatOvers(bowlerLine.balls ?? 0)),
-                    runs: toBengaliDigits(bowlerLine.runs ?? 0),
-                    wickets: toBengaliDigits(bowlerLine.wickets ?? 0),
-                  })
-                : null
-            }
-            onClick={canScore ? () => setPicker('bowler') : undefined}
-            actionLabel={t('scoring.change')}
-          />
-        </div>
-
-        {/* Something has to be chosen before the next ball can be scored */}
-        {(strikerMissing || bowlerMissing) && (
-          <div className="mt-4 rounded-lg border border-live/30 bg-live/10 px-3.5 py-3 text-sm text-live-light">
-            {strikerMissing && bowlerMissing
-              ? t('scoring.needStrikerAndBowler')
-              : strikerMissing
-                ? t('scoring.needStriker')
-                : t('scoring.needBowler')}
-          </div>
-        )}
+    return (
+      <div className="container-page py-10">
+        <SEO title={t('scoring.title')} path={`/admin/live-scoring/${matchId}`} />
 
         {banner && (
           <div
-            role="status"
-            className={cn(
-              'mt-4 rounded-lg border px-3.5 py-3 text-sm',
-              banner.tone === 'error'
-                ? 'border-live/30 bg-live/10 text-live-light'
-                : 'border-win/30 bg-win/10 text-win',
-            )}
+            role="alert"
+            className="mb-4 rounded-lg bg-live/10 px-3 py-2 text-xs font-semibold text-live-light"
           >
             {banner.text}
           </div>
         )}
+
+        <StartMatchForm
+          match={match}
+          onStart={{
+            isPending: startMatch.isPending,
+            mutate: (payload, options) => {
+              setBanner(null);
+              return startMatch.mutate(payload, {
+                ...options,
+                onError: (err) => {
+                  setBanner({
+                    tone: 'error',
+                    text: err?.message ?? t('scoring.startFailed'),
+                  });
+                  options?.onError?.(err);
+                },
+              });
+            },
+            mutateAsync: (payload, options) => {
+              setBanner(null);
+              return startMatch.mutateAsync(payload, options).catch((err) => {
+                setBanner({
+                  tone: 'error',
+                  text: err?.message ?? t('scoring.startFailed'),
+                });
+                throw err;
+              });
+            },
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <SEO title={t('scoring.title')} path={`/admin/live-scoring/${matchId}`} />
+
+      <div className="pb-56">
+        {/* Header */}
+        <header className="card mb-4 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate font-display text-base font-bold text-content-primary">
+                {match.teamAId?.name ?? match.teamA?.name ?? '—'} {t('match.vs')}{' '}
+                {match.teamBId?.name ?? match.teamB?.name ?? '—'}
+              </p>
+              <p className="mt-0.5 text-xs text-content-muted">{match.venue}</p>
+            </div>
+            <MatchStatusBadge status={match.status} />
+          </div>
+
+          <div className="mt-4 flex items-end justify-between gap-4">
+            <div>
+              <p className="tabular font-display text-3xl font-extrabold text-content-primary">
+                {toBengaliDigits(innings.runs)}/{toBengaliDigits(innings.wickets)}
+              </p>
+              <p className="tabular mt-1 text-sm text-content-secondary">
+                {formatOvers(innings.balls)} {t('scoring.overs')}
+                {innings.target
+                  ? ` · ${t('scoring.target')} ${toBengaliDigits(innings.target)}`
+                  : ''}
+              </p>
+            </div>
+
+            {match.freeHitPending && (
+              <span className="badge bg-gold/20 text-gold-dark">{t('scoring.freeHit')}</span>
+            )}
+          </div>
+        </header>
+
+        {/* The three crease slots */}
+        <div className="grid gap-3 sm:grid-cols-3">
+          <CreaseCard
+            label={t('scoring.striker')}
+            name={strikerLine?.player?.jerseyName || strikerLine?.player?.fullName}
+            detail={creaseDetail(strikerLine)}
+            onClick={() => setPicker('striker')}
+          />
+          <CreaseCard
+            label={t('scoring.nonStriker')}
+            name={nonStrikerLine?.player?.jerseyName || nonStrikerLine?.player?.fullName}
+            detail={creaseDetail(nonStrikerLine)}
+            onClick={() => setPicker('nonStriker')}
+          />
+          <CreaseCard
+            label={t('scoring.bowler')}
+            name={bowlerLine?.player?.jerseyName || bowlerLine?.player?.fullName}
+            detail={bowlerDetail(bowlerLine)}
+            onClick={() => setPicker('bowler')}
+          />
+        </div>
 
         {/* Recent balls */}
         {recentBalls.length > 0 && (
@@ -327,16 +290,22 @@ export default function LiveScoringMatch() {
               {t('match.ballByBall')}
             </h2>
             <div className="mt-3 space-y-1.5">
-              {recentBalls.slice(0, 5).map((ball) => (
-                <div key={ball.sequence} className="flex items-center gap-3 text-sm">
-                  <span className="tabular w-10 shrink-0 text-2xs text-content-muted">
-                    {toBengaliDigits(ball.displayOver)}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-xs text-content-secondary">
-                    {ball.commentaryBn || ball.commentaryEn}
-                  </span>
-                </div>
-              ))}
+              {recentBalls
+                .slice(-8)
+                .reverse()
+                .map((ball) => (
+                  <div
+                    key={ball.sequence}
+                    className="flex items-start justify-between gap-3 text-xs"
+                  >
+                    <span className="tabular shrink-0 font-semibold text-content-secondary">
+                      {toBengaliDigits(ball.displayOver)}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-content-secondary">
+                      {ball.commentaryBn || ball.commentaryEn}
+                    </span>
+                  </div>
+                ))}
             </div>
           </section>
         )}
@@ -346,8 +315,11 @@ export default function LiveScoringMatch() {
           <div className="mx-auto max-w-3xl px-3 py-3">
             <div className="mb-3 flex items-center justify-between gap-3">
               <span className="tabular truncate text-2xs text-content-muted">
-                {lastBall
-                  ? `${toBengaliDigits(lastBall.displayOver)} — ${lastBall.commentaryBn || lastBall.commentaryEn}`
+                {recentBalls.length
+                  ? `${toBengaliDigits(recentBalls[recentBalls.length - 1].displayOver)} — ${
+                      recentBalls[recentBalls.length - 1].commentaryBn ||
+                      recentBalls[recentBalls.length - 1].commentaryEn
+                    }`
                   : t('scoring.noBallsYet')}
               </span>
 
@@ -361,6 +333,7 @@ export default function LiveScoringMatch() {
               </button>
             </div>
 
+            {/* Runs off the bat */}
             <div className="grid grid-cols-6 gap-2">
               {[0, 1, 2, 3, 4, 6].map((runs) => (
                 <button
@@ -382,11 +355,12 @@ export default function LiveScoringMatch() {
               ))}
             </div>
 
+            {/* Extras and the wicket */}
             <div className="mt-2 grid grid-cols-4 gap-2">
               <button
                 type="button"
                 disabled={!canScore || recordBall.isPending}
-                onClick={() => sendBall({ extraType: 'WIDE' })}
+                onClick={() => setExtraSheet('WIDE')}
                 className="rounded-xl bg-surface-raised py-3 text-sm font-bold text-content-secondary transition hover:bg-surface-sunken disabled:opacity-40"
               >
                 {t('scoring.wide')}
@@ -394,7 +368,7 @@ export default function LiveScoringMatch() {
               <button
                 type="button"
                 disabled={!canScore || recordBall.isPending}
-                onClick={() => sendBall({ extraType: 'NO_BALL' })}
+                onClick={() => setExtraSheet('NO_BALL')}
                 className="rounded-xl bg-surface-raised py-3 text-sm font-bold text-content-secondary transition hover:bg-surface-sunken disabled:opacity-40"
               >
                 {t('scoring.noBall')}
@@ -402,7 +376,8 @@ export default function LiveScoringMatch() {
               <button
                 type="button"
                 disabled={!canScore || recordBall.isPending}
-                onClick={() => sendBall({ extraType: 'BYE' })}
+                onClick={() => setExtraSheet('BYE')}
+
                 className="rounded-xl bg-surface-raised py-3 text-sm font-bold text-content-secondary transition hover:bg-surface-sunken disabled:opacity-40"
               >
                 {t('scoring.bye')}
@@ -417,6 +392,20 @@ export default function LiveScoringMatch() {
               </button>
             </div>
 
+            {banner && (
+              <div
+                role="alert"
+                className={cn(
+                  'mt-2 rounded-lg px-3 py-2 text-xs font-semibold',
+                  banner.tone === 'error'
+                    ? 'bg-live/10 text-live-light'
+                    : 'bg-win/10 text-win',
+                )}
+              >
+                {banner.text}
+              </div>
+            )}
+
             {canScore && (
               <button
                 type="button"
@@ -430,17 +419,28 @@ export default function LiveScoringMatch() {
         </div>
       </div>
 
-      {/* Wicket: dismiss, then bring the next batter in */}
+      {/* Wicket */}
       <WicketSheet
         open={wicketOpen}
         onClose={() => setWicketOpen(false)}
+        freeHit={Boolean(match.freeHitPending)}
         battingSquad={formSquadFor(match, innings?.battingTeamId)}
         bowlingSquad={formSquadFor(match, innings?.bowlingTeamId)}
         onConfirm={async (spec) => {
           setWicketOpen(false);
           await sendBall(spec);
-          // The crease is empty now; ask for the incoming batter straight away.
           setPicker('striker');
+        }}
+      />
+
+      {/* Extra runs */}
+      <ExtraRunSheet
+        open={Boolean(extraSheet)}
+        kind={extraSheet}
+        onClose={() => setExtraSheet(null)}
+        onConfirm={async ({ extraType, runsBat, runsBye }) => {
+          setExtraSheet(null);
+          await sendBall({ extraType, runsBat, runsBye });
         }}
       />
 
@@ -449,10 +449,7 @@ export default function LiveScoringMatch() {
         open={picker === 'striker'}
         title={t('scoring.chooseStriker')}
         players={availableBatters}
-        unavailable={[
-          nonStrikerLine?.playerId,
-          strikerLine?.playerId,
-        ]}
+        unavailable={[nonStrikerLine?.playerId, strikerLine?.playerId]}
         selectedId={strikerLine?.playerId}
         onPick={(id) => {
           const other = nonStrikerLine?.playerId;
@@ -460,7 +457,8 @@ export default function LiveScoringMatch() {
             setBanner({ tone: 'error', text: t('scoring.sameBatterTwice') });
             return;
           }
-          applyPlayers({ strikerId: id, nonStrikerId: other });
+          setPlayers.mutate({ strikerId: id });
+          setPicker(null);
         }}
         onClose={() => setPicker(null)}
       />
@@ -469,18 +467,15 @@ export default function LiveScoringMatch() {
         open={picker === 'nonStriker'}
         title={t('scoring.chooseNonStriker')}
         players={availableBatters}
-        unavailable={[
-          strikerLine?.playerId,
-          nonStrikerLine?.playerId,
-        ]}
+        unavailable={[strikerLine?.playerId, nonStrikerLine?.playerId]}
         selectedId={nonStrikerLine?.playerId}
         onPick={(id) => {
-          const striker = strikerLine?.playerId;
-          if (String(id) === String(striker)) {
+          if (String(id) === String(strikerLine?.playerId)) {
             setBanner({ tone: 'error', text: t('scoring.sameBatterTwice') });
             return;
           }
-          applyPlayers({ strikerId: striker, nonStrikerId: id });
+          setPlayers.mutate({ nonStrikerId: id });
+          setPicker(null);
         }}
         onClose={() => setPicker(null)}
       />
@@ -488,69 +483,85 @@ export default function LiveScoringMatch() {
       <PlayerPickerSheet
         open={picker === 'bowler'}
         title={t('scoring.chooseBowler')}
-        players={availableBowlers}
+        players={formSquadFor(match, innings?.bowlingTeamId)?.playerIds ?? []}
         unavailable={[bowlerLine?.playerId]}
         selectedId={bowlerLine?.playerId}
-        onPick={(id) => applyPlayers({ bowlerId: id })}
+        onPick={(id) => {
+          setPlayers.mutate({ bowlerId: id });
+          setPicker(null);
+        }}
         onClose={() => setPicker(null)}
       />
 
       <ConfirmDialog
         open={confirmEnd}
         title={t('scoring.endInningsTitle')}
-        message={t('scoring.endInningsBody')}
+        message={t('scoring.endInningsConfirm')}
         confirmLabel={t('scoring.endInnings')}
-        busy={endInnings.isPending}
-        onCancel={() => setConfirmEnd(false)}
         onConfirm={async () => {
-          await endInnings.mutateAsync('DECLARED');
           setConfirmEnd(false);
-          contextQuery.refetch();
+          try {
+            await endInnings.mutateAsync({});
+          } catch (err) {
+            setBanner({ tone: 'error', text: err?.message ?? t('scoring.endInningsFailed') });
+          }
         }}
+        onClose={() => setConfirmEnd(false)}
       />
     </>
   );
 }
 
-/** Reshape a playing squad into what WicketSheet expects. */
+/** Reshape a playing squad into what the pickers expect. */
 function formSquadFor(match, teamId) {
-  const squad = match?.playingSquads?.find((entry) => String(entry.teamId) === String(teamId));
+  const squad = match?.playingSquads?.find(
+    (entry) => String(entry.teamId) === String(teamId),
+  );
   return { playerIds: squad?.playerIds ?? [] };
 }
 
-/** One labelled slot: striker, non-striker or bowler. Tap to change. */
-function PlayerSlot({ label, name, tone, detail, onClick, actionLabel }) {
-  const toneClass =
-    tone === 'brand'
-      ? 'border-brand/40 bg-brand/5'
-      : tone === 'gold'
-        ? 'border-gold/40 bg-gold/5'
-        : 'border-surface-border bg-surface-raised';
+/** A batter's line at the crease: runs and balls faced. */
+function creaseDetail(line) {
+  if (!line) return '';
+  return `${toBengaliDigits(line.runs ?? 0)} (${toBengaliDigits(line.balls ?? 0)})`;
+}
 
+/** A bowler's figure: overs-maidens-runs-wickets. */
+function bowlerDetail(line) {
+  if (!line) return '';
+  return `${formatOvers(line.balls ?? 0)}-${toBengaliDigits(
+    line.maidens ?? 0,
+  )}-${toBengaliDigits(line.runs ?? 0)}-${toBengaliDigits(line.wickets ?? 0)}`;
+}
+
+/** One tappable crease slot. */
+function CreaseCard({ label, name, detail, onClick }) {
   const content = (
     <>
-      <p className="text-2xs font-semibold uppercase tracking-widest text-content-muted">{label}</p>
+      <p className="text-2xs font-semibold uppercase tracking-widest text-content-muted">
+        {label}
+      </p>
       <p className="mt-0.5 truncate text-sm font-bold text-content-primary">{name || '—'}</p>
-      {detail && <p className="tabular mt-0.5 text-xs text-content-secondary">{detail}</p>}
+      {detail && (
+        <p className="tabular mt-0.5 text-xs text-content-secondary">{detail}</p>
+      )}
       {onClick && (
-        <p className="mt-1 text-2xs font-semibold text-brand-light">
-          {name ? `${actionLabel} ▾` : `+ ${actionLabel}`}
-        </p>
+        <span className="mt-1 inline-block text-2xs font-semibold text-brand-light">
+          Change
+        </span>
       )}
     </>
   );
 
-  if (!onClick) {
-    return <div className={cn('rounded-xl border p-3', toneClass)}>{content}</div>;
-  }
-
-  return (
+  return onClick ? (
     <button
       type="button"
       onClick={onClick}
-      className={cn('rounded-xl border p-3 text-left transition hover:brightness-110', toneClass)}
+      className="card p-4 text-left transition hover:border-brand/40"
     >
       {content}
     </button>
+  ) : (
+    <div className="card p-4">{content}</div>
   );
 }

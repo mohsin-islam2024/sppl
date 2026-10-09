@@ -12,6 +12,8 @@ import { toBengaliDigits } from '../../utils/format.js';
  *   - a run out credits no bowler, and the fielder is required
  *   - a bowled or lbw credits no fielder
  *   - a caught needs the fielder
+ *   - a six-out in this tournament is the short-pitch rule: the batter is out and no
+ *     runs are scored, and nobody is credited — no bowler, no fielder.
  * The sheet hides the fields that do not apply rather than letting the scorer pick
  * a combination the API will reject.
  */
@@ -22,7 +24,25 @@ const NEEDS_FIELDER = ['CAUGHT', 'RUN_OUT', 'STUMPED'];
 /** Dismissal options shown when a free hit is pending — only a run out is possible. */
 const FREE_HIT_TYPES = ['RUN_OUT'];
 
-export default function WicketSheet({ open, onClose, battingSquad, bowlingSquad, onConfirm }) {
+/**
+ * The full list, in the order a scorer reads it.
+ *
+ * `SIX_OUT` sits at the end because it is the tournament's own short-pitch rule rather
+ * than one of the Laws' dismissals, and it sits beside its neighbours rather than in a
+ * separate menu so the scorer does not have to remember where it lives.
+ */
+const ALL_TYPES = [
+  'BOWLED',
+  'CAUGHT',
+  'LBW',
+  'STUMPED',
+  'HIT_WICKET',
+  'RUN_OUT',
+  'RETIRED',
+  'SIX_OUT',
+];
+
+export default function WicketSheet({ open, onClose, battingSquad, bowlingSquad, onConfirm, freeHit = false }) {
   const { t } = useTranslation();
 
   const [wicketType, setWicketType] = useState('BOWLED');
@@ -47,8 +67,16 @@ export default function WicketSheet({ open, onClose, battingSquad, bowlingSquad,
   const battingPlayers = battingSquad?.playerIds ?? [];
   const bowlingPlayers = bowlingSquad?.playerIds ?? [];
 
+  // On a free hit only the run out is offered, so the scorer cannot pick a dismissal
+  // the server would reject.
+  const types = freeHit ? FREE_HIT_TYPES : ALL_TYPES;
+
   const needsFielder = NEEDS_FIELDER.includes(wicketType);
   const creditedToBowler = BOWLER_CREDITED.includes(wicketType);
+
+  // A six-out scores nothing and is a plain dismissal: the run question has no answer,
+  // so it is hidden rather than left at 0 for the scorer to wonder about.
+  const isSixOut = wicketType === 'SIX_OUT';
 
   const submit = () => {
     setError(null);
@@ -63,13 +91,12 @@ export default function WicketSheet({ open, onClose, battingSquad, bowlingSquad,
     }
 
     onConfirm({
-      runsBat,
+      // A six-out is never worth runs.
+      runsBat: isSixOut ? 0 : runsBat,
       isWicket: true,
       wicketType,
       dismissedPlayerId,
       fielderId: needsFielder ? fielderId : null,
-      // A run out is not credited to the bowler; the service also enforces this, but
-      // sending it explicitly keeps the payload honest about what happened.
       bowlerCredited: creditedToBowler,
     });
   };
@@ -96,35 +123,40 @@ export default function WicketSheet({ open, onClose, battingSquad, bowlingSquad,
           </button>
         </div>
 
+        {freeHit && (
+          <p className="mt-3 rounded-lg border border-gold/40 bg-gold/10 px-3.5 py-2.5 text-xs font-semibold text-gold-dark">
+            {t('scoring.freeHitRunOutOnly')}
+          </p>
+        )}
+
         {/* How out */}
         <fieldset className="mt-5">
           <legend className="text-sm font-semibold text-content-secondary">
             {t('scoring.dismissalType')}
           </legend>
           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {BOWLER_CREDITED.concat('RUN_OUT', 'RETIRED')
-              .filter((type) => !FREE_HIT_TYPES.length || true)
-              .map((type) => {
-                const isChosen = wicketType === type;
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => {
-                      setWicketType(type);
-                      if (!NEEDS_FIELDER.includes(type)) setFielderId('');
-                    }}
-                    aria-pressed={isChosen}
-                    className={`rounded-lg border px-3 py-2.5 text-xs font-semibold transition ${
-                      isChosen
-                        ? 'border-live bg-live/10 text-live'
-                        : 'border-surface-border bg-surface-raised text-content-secondary hover:bg-surface-sunken'
-                    }`}
-                  >
-                    {t(`scoring.wicketType.${type}`)}
-                  </button>
-                );
-              })}
+            {types.map((type) => {
+              const isChosen = wicketType === type;
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => {
+                    setWicketType(type);
+                    if (!NEEDS_FIELDER.includes(type)) setFielderId('');
+                    if (type === 'SIX_OUT') setRunsBat(0);
+                  }}
+                  aria-pressed={isChosen}
+                  className={`rounded-lg border px-3 py-2.5 text-xs font-semibold transition ${
+                    isChosen
+                      ? 'border-live bg-live/10 text-live'
+                      : 'border-surface-border bg-surface-raised text-content-secondary hover:bg-surface-sunken'
+                  }`}
+                >
+                  {t(`scoring.wicketType.${type}`)}
+                </button>
+              );
+            })}
           </div>
         </fieldset>
 
@@ -175,28 +207,36 @@ export default function WicketSheet({ open, onClose, battingSquad, bowlingSquad,
         )}
 
         {/* Runs scored on the same ball — a run out can happen going for a second run */}
-        <fieldset className="mt-5">
-          <legend className="text-sm font-semibold text-content-secondary">
-            {t('scoring.runsOnThisBall')}
-          </legend>
-          <div className="mt-2 flex gap-2">
-            {[0, 1, 2, 3].map((runs) => (
-              <button
-                key={runs}
-                type="button"
-                onClick={() => setRunsBat(runs)}
-                aria-pressed={runsBat === runs}
-                className={`tabular h-11 flex-1 rounded-lg border text-sm font-bold transition ${
-                  runsBat === runs
-                    ? 'border-brand bg-brand/10 text-brand-light'
-                    : 'border-surface-border bg-surface-raised text-content-secondary hover:bg-surface-sunken'
-                }`}
-              >
-                {toBengaliDigits(runs)}
-              </button>
-            ))}
-          </div>
-        </fieldset>
+        {!isSixOut && (
+          <fieldset className="mt-5">
+            <legend className="text-sm font-semibold text-content-secondary">
+              {t('scoring.runsOnThisBall')}
+            </legend>
+            <div className="mt-2 flex gap-2">
+              {[0, 1, 2, 3].map((runs) => (
+                <button
+                  key={runs}
+                  type="button"
+                  onClick={() => setRunsBat(runs)}
+                  aria-pressed={runsBat === runs}
+                  className={`tabular h-11 flex-1 rounded-lg border text-sm font-bold transition ${
+                    runsBat === runs
+                      ? 'border-brand bg-brand/10 text-brand-light'
+                      : 'border-surface-border bg-surface-raised text-content-secondary hover:bg-surface-sunken'
+                  }`}
+                >
+                  {toBengaliDigits(runs)}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        )}
+
+        {isSixOut && (
+          <p className="mt-5 rounded-lg border border-surface-border bg-surface-sunken px-3.5 py-3 text-xs text-content-secondary">
+            {t('scoring.sixOutNote')}
+          </p>
+        )}
 
         {error && (
           <div

@@ -40,6 +40,7 @@ export const WICKET_TYPE = Object.freeze({
   STUMPED: "STUMPED",
   HIT_WICKET: "HIT_WICKET",
   RETIRED: "RETIRED",
+  SIX_OUT: "SIX_OUT",
 });
 
 /** Only run out is possible on a free hit. */
