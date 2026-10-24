@@ -45,6 +45,7 @@ export const UPLOAD_FOLDERS = Object.freeze({
   logos: "sppl/logos",
   players: "sppl/players",
   gallery: "sppl/gallery",
+  news: "sppl/news",
   sponsors: "sppl/sponsors",
   seasons: "sppl/seasons",
 });
@@ -91,7 +92,7 @@ export function signUpload({ folder, publicId }) {
     folder,
     // The upload URL the browser should POST to. `auto` accepts images and video
     // without the client having to declare which it is sending.
-    uploadUrl: `[api.cloudinary.com](https://api.cloudinary.com/v1_1/${env.CLOUDINARY_CLOUD_NAME}/auto/upload)`,
+    uploadUrl: `https://api.cloudinary.com/v1_1/${env.CLOUDINARY_CLOUD_NAME}/auto/upload`,
   };
 }
 

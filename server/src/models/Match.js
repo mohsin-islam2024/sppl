@@ -32,6 +32,12 @@ const battingLineSchema = new mongoose.Schema(
     isStriker: { type: Boolean, default: false },
     /** True once the player has come to the crease. */
     hasBatted: { type: Boolean, default: false },
+    /**
+     * Left the crease injured and was replaced. Not a wicket. Kept as its own flag
+     * because rebuilding an innings after an undo clears isOut and replays only the
+     * deliveries, so the retirement has to be restorable from somewhere that survives.
+     */
+    retiredHurt: { type: Boolean, default: false },
   },
   { _id: false },
 );
@@ -120,6 +126,11 @@ const matchSchema = new mongoose.Schema(
       required: true,
     },
     venue: { type: String, trim: true, maxlength: 200, default: "" },
+    /**
+     * Overs per innings for THIS match. null means "use the season's rule", which is
+     * what every match created before this field existed does.
+     */
+    oversPerInnings: { type: Number, default: null, min: 1, max: 50 },
     startAt: { type: Date, required: true },
     status: {
       type: String,
@@ -139,6 +150,27 @@ const matchSchema = new mongoose.Schema(
         default: null,
       },
       completedAt: { type: Date, default: null },
+    },
+    /**
+     * Players replaced during the match (injury or illness). `playingSquads` always
+     * holds who is playing NOW; this is the history of how it got there, and it is
+     * what stops a replaced player from coming back.
+     */
+    substitutions: {
+      type: [
+        {
+          _id: false,
+          teamId: { type: mongoose.Schema.Types.ObjectId, ref: "Team", required: true },
+          outPlayerId: { type: mongoose.Schema.Types.ObjectId, ref: "Player", required: true },
+          inPlayerId: { type: mongoose.Schema.Types.ObjectId, ref: "Player", required: true },
+          /** Which innings was in progress, and how many deliveries had been recorded. */
+          inningsIndex: { type: Number, default: 0 },
+          atSequence: { type: Number, default: 0 },
+          at: { type: Date, default: Date.now },
+          byUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+        },
+      ],
+      default: [],
     },
     /** teams[0].players is the IX actually playing, chosen before the toss. */
     playingSquads: {

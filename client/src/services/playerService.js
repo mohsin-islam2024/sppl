@@ -10,8 +10,12 @@ export const playerService = {
     return { items: data.data, meta: data.meta };
   },
 
-  get: async (id) => {
-    const { data } = await api.get(`/players/${id}`);
+  /**
+   * @param {string} id
+   * @param {{ season?: string }} params  a season slug: show this person's record from that season
+   */
+  get: async (id, params = {}) => {
+    const { data } = await api.get(`/players/${id}`, { params });
     return data.data;
   },
 

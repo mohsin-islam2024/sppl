@@ -65,7 +65,7 @@ export default function TeamDetail() {
         structuredData={
           team
             ? {
-                '@context': '[schema.org](https://schema.org)',
+                '@context': 'https://schema.org',
                 '@type': 'SportsTeam',
                 name: team.name,
                 sport: 'Cricket',
@@ -79,7 +79,7 @@ export default function TeamDetail() {
         title={team?.name ?? slug}
         subtitle={
           team?.season
-            ? `${team.season.shortName} ${team.season.seasonNo} · ${team.season.year}`
+            ? `${team.season.shortName} ${toBengaliDigits(team.season.seasonNo)} · ${toBengaliDigits(team.season.year)}`
             : undefined
         }
         breadcrumb={[{ label: t('nav.teams'), to: '/teams' }, { label: team?.name ?? slug }]}

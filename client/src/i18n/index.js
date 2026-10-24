@@ -4,6 +4,7 @@ import LanguageDetector from "i18next-browser-languagedetector";
 
 import bn from "./locales/bn.json";
 import en from "./locales/en.json";
+import { convertToBengaliDigits } from "../utils/digits.js";
 
 /**
  * Internationalisation.
@@ -17,7 +18,30 @@ export const SUPPORTED_LANGUAGES = [
   { code: "en", label: "English", shortLabel: "EN" },
 ];
 
+/**
+ * Turns the digits of every translated string into Bengali digits when the language
+ * is Bangla.
+ *
+ * Numbers reach the text through placeholders ("{{count}} overs", "Match {{number}}")
+ * and, before this, each caller had to remember to convert its own number first. Many
+ * did not, so a Bangla sentence came out with Western digits. Doing it once here, on
+ * the finished string, covers all of them, and it is harmless where the caller already
+ * converted (Bengali digits are not matched). English strings are left exactly as
+ * they are.
+ */
+const localDigits = {
+  type: "postProcessor",
+  name: "localDigits",
+  process(value, _key, options, translator) {
+    const language = options?.lng ?? translator?.language ?? "";
+    return typeof value === "string" && language.startsWith("bn")
+      ? convertToBengaliDigits(value)
+      : value;
+  },
+};
+
 i18n
+  .use(localDigits)
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
@@ -38,6 +62,7 @@ i18n
       escapeValue: false,
     },
     returnObjects: true,
+    postProcess: ["localDigits"],
     debug: false,
   });
 

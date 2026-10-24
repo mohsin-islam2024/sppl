@@ -7,6 +7,7 @@ import EmptyState from '../../components/common/EmptyState.jsx';
 import { MatchCardSkeleton, ErrorState } from '../../components/common/Skeleton.jsx';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
 import { useSeasonFixtures } from '../../hooks/useSeason.js';
+import { toBengaliDigits } from '../../utils/format.js';
 
 /**
  * Results page.
@@ -45,7 +46,7 @@ export default function Results() {
         title={t('nav.results')}
         subtitle={
           season
-            ? t('results.subtitle', { season: `${season.shortName} ${season.seasonNo}` })
+            ? t('results.subtitle', { season: `${season.shortName} ${toBengaliDigits(season.seasonNo)}` })
             : undefined
         }
         actions={

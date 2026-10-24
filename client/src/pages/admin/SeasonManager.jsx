@@ -181,7 +181,7 @@ export default function SeasonManager() {
       const result = await deleteSeason.mutateAsync(confirmTarget._id ?? confirmTarget.id);
       setBanner({
         tone: 'success',
-        text: `মুছে ফেলা হয়েছে: ${result.teams} দল, ${result.players} খেলোয়াড়, ${result.matches} ম্যাচ`,
+        text: `মুছে ফেলা হয়েছে: ${toBengaliDigits(result.teams)} দল, ${toBengaliDigits(result.players)} খেলোয়াড়, ${toBengaliDigits(result.matches)} ম্যাচ`,
       });
       setConfirmTarget(null);
     } catch (err) {

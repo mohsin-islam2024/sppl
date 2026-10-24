@@ -2,6 +2,7 @@ import { Match } from "../models/Match.js";
 import { Ball } from "../models/Ball.js";
 import { Player } from "../models/Player.js";
 import { PointsTable } from "../models/PointsTable.js";
+import { Award } from "../models/Award.js";
 import { resolveSeason } from "./seasonService.js";
 import { recomputeSeasonStats } from "./statsService.js";
 import * as engine from "./scoringEngine.js";
@@ -12,6 +13,9 @@ import {
 } from "@sppl/shared/constants/matchStatus.js";
 import { netRunRate } from "@sppl/shared/utils/nrr.js";
 import ApiError from "../utils/ApiError.js";
+import { rulesForMatch, maxWicketsFor, squadSizeFor } from "../utils/matchRules.js";
+import { restoreRetirements } from "../utils/substitution.js";
+import { applyCreaseSelection } from "../utils/crease.js";
 
 /**
  * Live scoring service.
@@ -98,28 +102,10 @@ export async function setPlayers({
     if (line.isOut) throw ApiError.badRequest(`The ${label} is already out`);
   }
 
-  if (strikerId || nonStrikerId) {
-    for (const line of innings.batting ?? []) {
-      if (line.isOut) {
-        line.isStriker = false;
-        continue;
-      }
-
-      const id = String(line.playerId);
-
-      if (strikerId && id === String(strikerId)) {
-        line.isStriker = true;
-        line.hasBatted = true;
-      } else if (nonStrikerId && id === String(nonStrikerId)) {
-        line.isStriker = false;
-        line.hasBatted = true;
-      } else {
-        // Only clear the marker when a batting change was actually sent — otherwise
-        // a bowler-only update would wipe the striker.
-        line.isStriker = false;
-      }
-    }
-  }
+  // The marker rules live in one tested place. Naming only a non-striker must leave
+  // the striker on strike; clearing it here is what made the striker vanish in the
+  // second innings, where the openers are chosen one at a time.
+  applyCreaseSelection(innings.batting, { strikerId, nonStrikerId });
 
   if (bowlerId) {
     const isInBowlingSide = (innings.bowling ?? []).some(
@@ -148,12 +134,51 @@ export async function setPlayers({
  * Recording a delivery
  * ------------------------------------------------------------------ */
 
+/** How long a ball may sit unreflected in the match before it is treated as a leftover. */
+const ORPHAN_BALL_AFTER_MS = 15 * 1000;
+
+/** The reply for a delivery that had already been recorded when it was sent again. */
+function duplicateBallResult(match, ball) {
+  const innings = match.innings?.[ball.innings];
+  return {
+    ball: ball.toObject(),
+    match,
+    inningsEnded: Boolean(innings?.isComplete),
+    inningsEndReason: innings?.closedReason ?? null,
+    matchCompleted: match.status === MATCH_STATUS.COMPLETED,
+    duplicate: true,
+  };
+}
+
 /**
  * Record one delivery and return the new match state.
  */
-export async function recordBall({ matchId, delivery, userId }) {
+export async function recordBall({ matchId, delivery, userId, healed = false }) {
   const match = await Match.findById(matchId);
   if (!match) throw ApiError.notFound("Match not found");
+
+  // A retried request must be recognised BEFORE anything else is checked. If the
+  // ball that finished the match had its reply lost, the retry arrives when the match
+  // is no longer live, and the "only while live" check below would call a successful
+  // ball a failure.
+  if (delivery.clientBallId) {
+    const earlier = await Ball.findOne({
+      matchId: match._id,
+      clientBallId: delivery.clientBallId,
+    });
+
+    if (earlier) {
+      if (earlier.sequence <= match.ballSequence) {
+        return duplicateBallResult(match, earlier);
+      }
+
+      // The ball was saved but the match never advanced to include it (the server
+      // stopped between the two writes). Remove the orphan and record it properly
+      // below; returning "already recorded" here would leave the score short by a
+      // ball and every later ball colliding with the orphan's sequence number.
+      await Ball.deleteOne({ _id: earlier._id });
+    }
+  }
 
   if (match.status !== MATCH_STATUS.LIVE) {
     throw ApiError.badRequest(
@@ -162,7 +187,9 @@ export async function recordBall({ matchId, delivery, userId }) {
   }
 
   const season = await resolveSeason(match.seasonId, { required: true });
-  const rules = season.matchRules ?? {};
+  // The match may override the season's overs, so the innings limit is read from the
+  // match's own rules, not from the season directly.
+  const rules = rulesForMatch(match, season.matchRules);
 
   const inningsIndex = delivery.innings;
   const innings = match.innings[inningsIndex];
@@ -175,7 +202,8 @@ export async function recordBall({ matchId, delivery, userId }) {
 
   const ballsPerInnings =
     (rules.oversPerInnings ?? 10) * (rules.ballsPerOver ?? 6);
-  const maxWickets = (rules.playersPerSide ?? 9) - 1;
+  // All out is decided by the players this side really has, not the season's nominal 9.
+  const maxWickets = maxWicketsFor(match, innings.battingTeamId, rules);
 
   engine.validateDelivery(delivery, {
     isFreeHit: Boolean(match.freeHitPending),
@@ -191,6 +219,7 @@ export async function recordBall({ matchId, delivery, userId }) {
   const overComplete = engine.completesOver(
     counter.legalBalls,
     rules.ballsPerOver ?? 6,
+    delivery.extraType,
   );
 
   const nextRuns = innings.runs + totalRuns;
@@ -218,16 +247,40 @@ export async function recordBall({ matchId, delivery, userId }) {
   innings.wickets = nextWickets;
   innings.balls = counter.legalBalls;
 
+  // The console sends player ids, not names, and a wicket's commentary needs both
+  // ("Sohel strikes: Saddam out"). Without them it came out as "  strikes —  out".
+  // Wickets are rare, so one small lookup then is cheap; any failure falls back to the
+  // old (nameless) text rather than ever holding up a ball.
+  let batterName = delivery.batterName ?? "";
+  let bowlerName = delivery.bowlerName ?? "";
+  if (
+    delivery.isWicket &&
+    !(delivery.commentaryBn || delivery.commentaryEn) &&
+    (!batterName || !bowlerName)
+  ) {
+    try {
+      const outId = delivery.dismissedPlayerId ?? delivery.batterId;
+      const people = await Player.find({ _id: { $in: [outId, delivery.bowlerId] } })
+        .select("fullName jerseyName")
+        .lean();
+      const nameOf = (id) => {
+        const person = people.find((entry) => String(entry._id) === String(id));
+        return person?.jerseyName || person?.fullName || "";
+      };
+      batterName = batterName || nameOf(outId);
+      bowlerName = bowlerName || nameOf(delivery.bowlerId);
+    } catch {
+      // Keep the nameless text; the ball itself must still be recorded.
+    }
+  }
+
   const commentary =
     delivery.commentaryBn || delivery.commentaryEn
       ? {
           commentaryBn: delivery.commentaryBn ?? "",
           commentaryEn: delivery.commentaryEn ?? "",
         }
-      : engine.buildCommentary(delivery, {
-          batterName: delivery.batterName ?? "",
-          bowlerName: delivery.bowlerName ?? "",
-        });
+      : engine.buildCommentary(delivery, { batterName, bowlerName });
 
   const ball = new Ball({
     matchId: match._id,
@@ -237,6 +290,7 @@ export async function recordBall({ matchId, delivery, userId }) {
     ballInOver: counter.ballInOver,
     legalBallNumber: counter.legalBallNumber,
     sequence: match.ballSequence + 1,
+    clientBallId: delivery.clientBallId ?? null,
     batterId: delivery.batterId,
     nonStrikerId: delivery.nonStrikerId,
     bowlerId: delivery.bowlerId,
@@ -268,6 +322,37 @@ export async function recordBall({ matchId, delivery, userId }) {
     await ball.save();
   } catch (error) {
     if (error.code === 11000) {
+      // Two copies of the same request in flight at once (a retry racing the
+      // original): the one that lost is a duplicate, not a conflict.
+      if (delivery.clientBallId && error.keyPattern?.clientBallId) {
+        const winner = await Ball.findOne({
+          matchId: match._id,
+          clientBallId: delivery.clientBallId,
+        });
+        if (winner) {
+          return duplicateBallResult(await Match.findById(match._id), winner);
+        }
+      }
+
+      // Not a retry: some earlier request saved a ball at this very position but the
+      // match never advanced to include it (the server stopped between the two
+      // writes). Left alone it blocks EVERY further ball, because each new ball asks
+      // for the same position. A genuine concurrent request finishes in well under a
+      // second, so a ball that has sat there longer than that is such a leftover.
+      // It is not in the score (ballSequence never reached it), so removing it
+      // loses nothing; then the delivery is tried again, once.
+      if (!healed) {
+        const stuck = await Ball.findOne({
+          matchId: match._id,
+          sequence: match.ballSequence + 1,
+        });
+        const age = stuck ? Date.now() - new Date(stuck.createdAt).getTime() : 0;
+        if (stuck && age > ORPHAN_BALL_AFTER_MS) {
+          await Ball.deleteOne({ _id: stuck._id });
+          return recordBall({ matchId, delivery, userId, healed: true });
+        }
+      }
+
       throw ApiError.conflict("That delivery was already recorded");
     }
     throw error;
@@ -282,14 +367,7 @@ export async function recordBall({ matchId, delivery, userId }) {
 
   // A wicket removes whoever was dismissed and leaves the crease empty for them.
   // The scorer then names the incoming batter through setPlayers.
-  if (delivery.isWicket && delivery.dismissedPlayerId) {
-    for (const line of innings.batting ?? []) {
-      if (String(line.playerId) === String(delivery.dismissedPlayerId)) {
-        line.isOut = true;
-        line.isStriker = false;
-      }
-    }
-  }
+  removeDismissedBatter(innings, delivery);
 
   // An over change clears the bowler marker so the console can ask for the next one.
   if (overComplete && innings.bowling?.length) {
@@ -313,6 +391,7 @@ export async function recordBall({ matchId, delivery, userId }) {
 
   if (endCheck.complete) {
     await refreshPointsTable(match.seasonId, rules);
+    await syncFinalAwards(match);
   }
 
   // Player statistics are rebuilt once the match is over, not on every delivery. A
@@ -338,8 +417,16 @@ export async function undoLastBall({ matchId, innings: requestedInnings }) {
   const match = await Match.findById(matchId);
   if (!match) throw ApiError.notFound("Match not found");
 
-  const inningsIndex =
-    requestedInnings !== undefined ? requestedInnings : match.currentInnings;
+  // Only 0 or 1 is a real innings. Anything else (an object, text, nothing) means "the
+  // one in progress". Passing it to the query unchecked turned a malformed request into
+  // a database cast error that reached the scorer as "Invalid value for innings".
+  const asNumber =
+    requestedInnings === null ||
+    requestedInnings === undefined ||
+    typeof requestedInnings === "object"
+      ? NaN
+      : Number(requestedInnings);
+  const inningsIndex = asNumber === 0 || asNumber === 1 ? asNumber : match.currentInnings;
 
   const lastBall = await Ball.findOne({
     matchId: match._id,
@@ -354,7 +441,22 @@ export async function undoLastBall({ matchId, innings: requestedInnings }) {
   await Ball.deleteOne({ _id: lastBall._id });
 
   const season = await resolveSeason(match.seasonId, { required: true });
-  await rebuildInnings(match, inningsIndex, season.matchRules ?? {});
+  await rebuildInnings(match, inningsIndex, rulesForMatch(match, season.matchRules));
+
+  // Undoing the very FIRST ball leaves no deliveries to replay, and a rebuild from
+  // nothing empties the crease: the openers and the bowler would have to be chosen
+  // all over again. Put them back, exactly as they were for that ball.
+  const remaining = await Ball.countDocuments({ matchId: match._id, innings: inningsIndex });
+  if (remaining === 0) {
+    const rebuilt = match.innings[inningsIndex];
+    applyCreaseSelection(rebuilt.batting, {
+      strikerId: lastBall.batterId,
+      nonStrikerId: lastBall.nonStrikerId,
+    });
+    for (const line of rebuilt.bowling ?? []) {
+      line.isBowling = String(line.playerId) === String(lastBall.bowlerId);
+    }
+  }
 
   match.ballSequence = Math.max(0, match.ballSequence - 1);
 
@@ -369,6 +471,11 @@ export async function undoLastBall({ matchId, innings: requestedInnings }) {
       completedAt: null,
     };
     match.pointsProcessed = false;
+
+    // A result that is being taken back drags its consequences with it: a recorded
+    // super over, and the champion / runner-up that a final's result had set.
+    match.superOver = { played: false, innings: [], result: null };
+    await clearFinalAwards(match);
   }
 
   await match.save();
@@ -394,7 +501,7 @@ export async function rebuildInnings(match, inningsIndex, rules) {
 
   const ballsPerOver = rules.ballsPerOver ?? 6;
   const ballsPerInnings = (rules.oversPerInnings ?? 10) * ballsPerOver;
-  const maxWickets = (rules.playersPerSide ?? 9) - 1;
+  const maxWickets = maxWicketsFor(match, innings.battingTeamId, rules);
 
   innings.runs = 0;
   innings.wickets = 0;
@@ -439,7 +546,11 @@ export async function rebuildInnings(match, inningsIndex, rules) {
     const bowlerRuns = engine.runsChargedToBowler(ball, rulesForDelivery);
     const totalRuns = ball.totalRuns;
     const runsRun = engine.runsRunByBatters(ball);
-    const overComplete = engine.completesOver(counter.legalBalls, ballsPerOver);
+    const overComplete = engine.completesOver(
+      counter.legalBalls,
+      ballsPerOver,
+      ball.extraType,
+    );
 
     applyDeliveryToInnings({
       innings,
@@ -458,7 +569,16 @@ export async function rebuildInnings(match, inningsIndex, rules) {
 
     if (engine.shouldRotateStrike({ runsRun, overComplete }))
       swapStrike(innings);
+
+    // The same order as when the ball was first recorded: strike first, then the
+    // dismissed batter leaves. Without this an undo would bring the wicket back with
+    // the dismissed striker still flagged as the one on strike.
+    removeDismissedBatter(innings, ball);
   }
+
+  // The replay only knows about deliveries, so a batter who retired hurt would come
+  // back as if nothing had happened. Put the retirements back.
+  restoreRetirements(innings);
 
   const endCheck = engine.checkInningsEnd({
     legalBalls: innings.balls,
@@ -548,8 +668,10 @@ export function closeMatch(match) {
   match.status = MATCH_STATUS.COMPLETED;
 
   if (second.runs >= second.target) {
-    const wicketsLeft =
-      (match.playingSquads?.[0]?.playerIds?.length ?? 9) - 1 - second.wickets;
+    // The chasing side's own squad: the margin is how many of THEIR wickets were left.
+    // (It used to read the first squad in the list, which is the wrong team half the
+    // time and wrong whenever the two sides have different numbers of players.)
+    const wicketsLeft = squadSizeFor(match, second.battingTeamId, 9) - 1 - second.wickets;
     const margin = `${wicketsLeft} wicket${wicketsLeft === 1 ? "" : "s"}`;
     match.result = {
       resultType: "WIN",
@@ -594,9 +716,19 @@ export function closeMatch(match) {
 export async function refreshPointsTable(seasonId, rules = {}) {
   const oversPerInnings = rules.oversPerInnings ?? 10;
 
+  // Only league matches earn table points. A semi-final or the final is decided by
+  // knockout, and counting it here would hand the finalists extra wins and shift the
+  // net run rate the league was ranked on. `$nin` (rather than `stage: "LEAGUE"`)
+  // keeps matches saved before the stage field existed, which have no stage at all.
+  const leagueOnly = { stage: { $nin: ["SEMI_FINAL", "FINAL"] } };
+
   const [teams, matches] = await Promise.all([
-    Match.distinct("teamAId", { seasonId }),
-    Match.find({ seasonId, status: MATCH_STATUS.COMPLETED }).lean(),
+    Match.distinct("teamAId", { seasonId, ...leagueOnly }),
+    Match.find({
+      seasonId,
+      status: MATCH_STATUS.COMPLETED,
+      ...leagueOnly,
+    }).lean(),
   ]);
 
   const allTeams = new Set(teams.map(String));
@@ -663,10 +795,16 @@ export async function refreshPointsTable(seasonId, rules = {}) {
       match.result?.resultType === "NO_RESULT";
 
     if (isTie) {
+      // A match that stayed level through its super over shares the points by the
+      // season's own super-over rule; a plain tie or no-result uses the ordinary one.
+      const shared = match.superOver?.played
+        ? (pointsSystem.superOverTieSplit ?? pointsSystem.tieOrNoResult ?? 1)
+        : (pointsSystem.tieOrNoResult ?? 1);
+
       teamA.tied += 1;
       teamB.tied += 1;
-      teamA.points += pointsSystem.tieOrNoResult ?? 1;
-      teamB.points += pointsSystem.tieOrNoResult ?? 1;
+      teamA.points += shared;
+      teamB.points += shared;
       teamA.recentForm.push("T");
       teamB.recentForm.push("T");
     } else if (winner && String(winner) === String(match.teamAId)) {
@@ -706,6 +844,49 @@ export async function refreshPointsTable(seasonId, rules = {}) {
   );
 
   return table;
+}
+
+/* ------------------------------------------------------------------ *
+ * Final result -> champion and runner-up
+ * ------------------------------------------------------------------ */
+
+/**
+ * When the FINAL finishes with a winner, record the champion and the runner-up.
+ *
+ * The two awards are tied to the final through `matchId`, which is what lets an undo
+ * remove exactly these and nothing an admin typed by hand. Only the winner fields
+ * are written, so a note or a figure an admin added to the award survives a re-run.
+ *
+ * It does nothing for any other stage, for a match still in play, and for a final
+ * with no winner yet (a tie waiting on its super over).
+ */
+export async function syncFinalAwards(match) {
+  if (match.stage !== "FINAL") return;
+  if (match.status !== MATCH_STATUS.COMPLETED) return;
+
+  const winnerId = match.result?.winnerTeamId;
+  if (!winnerId) return;
+
+  const loserId =
+    String(winnerId) === String(match.teamAId) ? match.teamBId : match.teamAId;
+
+  const write = (type, teamId) =>
+    Award.findOneAndUpdate(
+      { seasonId: match.seasonId, type },
+      { $set: { winnerTeamId: teamId, matchId: match._id } },
+      { upsert: true, setDefaultsOnInsert: true },
+    );
+
+  await Promise.all([write("CHAMPION", winnerId), write("RUNNER_UP", loserId)]);
+}
+
+/** Remove the champion / runner-up that this final's result created. */
+export async function clearFinalAwards(match) {
+  if (match.stage !== "FINAL") return;
+  await Award.deleteMany({
+    matchId: match._id,
+    type: { $in: ["CHAMPION", "RUNNER_UP"] },
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -759,7 +940,13 @@ function applyDeliveryToInnings({
       bowler.wickets += 1;
     }
 
-    if (engine.completesOver(counter.legalBalls, rules.ballsPerOver ?? 6)) {
+    if (
+      engine.completesOver(
+        counter.legalBalls,
+        rules.ballsPerOver ?? 6,
+        delivery.extraType,
+      )
+    ) {
       if (bowler.currentOverRuns === 0) bowler.maidens += 1;
       bowler.currentOverRuns = 0;
       bowler.currentOverBalls = 0;
@@ -771,7 +958,13 @@ function applyDeliveryToInnings({
       (line) => String(line.playerId) === String(delivery.dismissedPlayerId),
     );
     if (dismissed) {
-      dismissed.isOut = true;
+      // The details of the dismissal are recorded here, but `isOut` is NOT set yet.
+      // The strike has to be settled while BOTH batters are still at the crease:
+      // swapStrike works on the two batters at the crease and does nothing when one
+      // is already out. Marking him out first meant that a wicket on the last ball of
+      // an over (where the ends must change) skipped the change completely, so the
+      // survivor never took the strike and the new batter was put on strike instead.
+      // removeDismissedBatter() takes him off, after the strike has moved.
       dismissed.dismissalType = delivery.wicketType;
       dismissed.dismissedByPlayerId =
         delivery.wicketType === WICKET_TYPE.RUN_OUT ? null : delivery.bowlerId;
@@ -792,6 +985,21 @@ function applyDeliveryToInnings({
 }
 
 /** Swap striker and non-striker. */
+/**
+ * Take the dismissed batter off the crease. Always called AFTER the strike has been
+ * rotated for the delivery (see the note in applyDeliveryToInnings).
+ */
+function removeDismissedBatter(innings, delivery) {
+  if (!delivery.isWicket || !delivery.dismissedPlayerId) return;
+
+  for (const line of innings.batting ?? []) {
+    if (String(line.playerId) === String(delivery.dismissedPlayerId)) {
+      line.isOut = true;
+      line.isStriker = false;
+    }
+  }
+}
+
 function swapStrike(innings) {
   const batters = (innings.batting ?? []).filter(
     (line) => line.hasBatted && !line.isOut,
@@ -811,6 +1019,8 @@ export default {
   undoLastBall,
   rebuildInnings,
   refreshPointsTable,
+  syncFinalAwards,
+  clearFinalAwards,
   closeMatch,
   setPlayers,
   recomputeStats: recomputeSeasonStats,

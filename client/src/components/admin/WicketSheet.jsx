@@ -175,7 +175,7 @@ export default function WicketSheet({ open, onClose, battingSquad, bowlingSquad,
               const id = player.id ?? player._id;
               return (
                 <option key={id} value={id}>
-                  #{player.jerseyNo} {player.jerseyName || player.fullName}
+                  #{toBengaliDigits(player.jerseyNo)} {player.jerseyName || player.fullName}
                 </option>
               );
             })}
@@ -198,7 +198,7 @@ export default function WicketSheet({ open, onClose, battingSquad, bowlingSquad,
                 const id = player.id ?? player._id;
                 return (
                   <option key={id} value={id}>
-                    #{player.jerseyNo} {player.jerseyName || player.fullName}
+                    #{toBengaliDigits(player.jerseyNo)} {player.jerseyName || player.fullName}
                   </option>
                 );
               })}

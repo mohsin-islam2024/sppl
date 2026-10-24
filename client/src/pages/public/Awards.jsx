@@ -5,6 +5,7 @@ import EmptyState from '../../components/common/EmptyState.jsx';
 import { TableSkeleton, ErrorState } from '../../components/common/Skeleton.jsx';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
 import { useAwards } from '../../hooks/useContent.js';
+import { toBengaliDigits } from '../../utils/format.js';
 
 /**
  * Awards page.
@@ -60,7 +61,7 @@ export default function Awards() {
         title={t('nav.awards')}
         subtitle={
           season
-            ? t('awards.subtitle', { season: `${season.shortName} ${season.seasonNo}` })
+            ? t('awards.subtitle', { season: `${season.shortName} ${toBengaliDigits(season.seasonNo)}` })
             : undefined
         }
       />

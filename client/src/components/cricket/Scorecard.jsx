@@ -270,6 +270,9 @@ function PlayerName({ player }) {
  * Not out and did-not-bat are distinct states and say so.
  */
 function dismissalText(line, t) {
+  // Checked first: a batter who retired hurt is marked out internally so he cannot bat
+  // again, but on the card he is neither out nor not out.
+  if (line.retiredHurt) return t('scorecard.retiredHurt');
   if (!line.isOut) return t('scorecard.notOut');
   if (!line.dismissalType) return t('scorecard.out');
 

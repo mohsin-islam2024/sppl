@@ -14,7 +14,7 @@ const envSchema = z.object({
   FIREBASE_PRIVATE_KEY: z.string().min(1, "FIREBASE_PRIVATE_KEY is required"),
   CORS_ORIGINS: z
     .string()
-    .default("[localhost](http://localhost:5173)")
+    .default("http://localhost:5173")
     .transform((value) =>
       value
         .split(",")

@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
+import { toBengaliDigits } from '../../utils/format.js';
 
 /**
  * Season switcher.
@@ -28,7 +29,7 @@ export default function SeasonSwitcher({ className = '' }) {
       >
         {seasons.map((entry) => (
           <option key={entry.id} value={entry.slug}>
-            {entry.shortName} {entry.seasonNo} · {entry.year}
+            {entry.shortName} {toBengaliDigits(entry.seasonNo)} · {toBengaliDigits(entry.year)}
             {entry.status === 'COMPLETED' ? ` (${t('season.completedTag')})` : ''}
             {entry.status === 'UPCOMING' ? ` (${t('season.upcomingTag')})` : ''}
           </option>

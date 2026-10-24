@@ -8,6 +8,7 @@ import LanguageToggle from '../common/LanguageToggle.jsx';
 import ThemeToggle from '../common/ThemeToggle.jsx';
 import PageLoader from '../common/PageLoader.jsx';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
+import { toBengaliDigits } from '../../utils/format.js';
 
 
 /**
@@ -56,7 +57,7 @@ export default function PublicLayout() {
               {/* Reads the active season rather than a hard-coded year. As written the header
               claimed "Season 1 · 2026" while the page below it was showing Season 2. */}
               <span className="text-2xs font-medium uppercase tracking-widest text-gold">
-                 {season ? `${season.shortName} ${season.seasonNo} · ${season.year}` : 'SPPL'}
+                 {season ? `${season.shortName} ${toBengaliDigits(season.seasonNo)} · ${toBengaliDigits(season.year)}` : 'SPPL'}
               </span>
 
             </span>
@@ -221,7 +222,9 @@ export default function PublicLayout() {
           <FooterGroup
             title={t('nav.news')}
             links={[
+              { to: '/news', label: t('nav.news') },
               { to: '/gallery', label: t('nav.gallery') },
+              { to: '/videos', label: t('nav.videos') },
               { to: '/sponsors', label: t('nav.sponsors') },
               { to: '/rules', label: t('nav.rules') },
             ]}

@@ -71,7 +71,9 @@ export default function AdminLayout() {
     {
       title: t('admin.gallery'),
       items: [
+        { to: '/admin/news', label: t('admin.news'), show: canManage },
         { to: '/admin/gallery', label: t('admin.gallery'), show: canManage },
+        { to: '/admin/videos', label: t('admin.videos'), show: canManage },
         { to: '/admin/sponsors', label: t('admin.sponsors'), show: canManage },
         { to: '/admin/awards', label: t('admin.awards'), show: canManage },
         { to: '/admin/announcements', label: t('admin.announcements'), show: canManage },

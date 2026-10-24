@@ -410,9 +410,22 @@ export async function updateMatch(matchId, payload) {
     }
   }
 
+  // The overs limit decides when an innings ends. Changing it after deliveries exist
+  // would move the goalposts under an innings that is already recorded.
+  if (
+    hasStarted &&
+    payload.oversPerInnings !== undefined &&
+    (payload.oversPerInnings ?? null) !== (match.oversPerInnings ?? null)
+  ) {
+    throw ApiError.conflict(
+      "This match has already started, so its number of overs cannot be changed",
+    );
+  }
+
   const allowed = [
     "matchNo",
     "stage",
+    "oversPerInnings",
     "teamAId",
     "teamBId",
     "venue",

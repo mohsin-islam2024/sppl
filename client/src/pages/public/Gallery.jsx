@@ -6,6 +6,7 @@ import EmptyState from '../../components/common/EmptyState.jsx';
 import { GridSkeleton, ErrorState } from '../../components/common/Skeleton.jsx';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
 import { useGallery } from '../../hooks/useContent.js';
+import { toBengaliDigits } from '../../utils/format.js';
 
 /**
  * Gallery.
@@ -51,7 +52,7 @@ export default function Gallery() {
         title={t('nav.gallery')}
         subtitle={
           season
-            ? t('gallery.subtitle', { season: `${season.shortName} ${season.seasonNo}` })
+            ? t('gallery.subtitle', { season: `${season.shortName} ${toBengaliDigits(season.seasonNo)}` })
             : undefined
         }
       />

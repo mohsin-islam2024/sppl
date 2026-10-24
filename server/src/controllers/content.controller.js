@@ -39,7 +39,9 @@ export const listNews = asyncHandler(async (req, res) => {
       .limit(limit)
       // The list does not need the article body; sending it would multiply the
       // payload by roughly twenty for text nobody reads until they open the article.
-      .select("title slug excerpt coverImageUrl publishedAt")
+      .select(
+        "slug titleBn titleEn excerptBn excerptEn coverUrl tags publishedAt",
+      )
       .lean(),
     News.countDocuments(filter),
   ]);
@@ -49,10 +51,15 @@ export const listNews = asyncHandler(async (req, res) => {
 
 /** GET /api/v1/news/:slug */
 export const getNews = asyncHandler(async (req, res) => {
-  const item = await News.findOne({
-    slug: req.params.slug,
-    published: true,
-  }).lean();
+  const filter = { slug: req.params.slug, published: true };
+
+  // A slug is unique per season, not globally, so a season in the query narrows it.
+  if (req.query.season) {
+    const season = await resolveSeason(req.query.season);
+    if (season) filter.seasonId = season._id;
+  }
+
+  const item = await News.findOne(filter).sort({ publishedAt: -1 }).lean();
   if (!item) throw ApiError.notFound("News item not found");
 
   res.status(200).json(ok(item));
@@ -66,20 +73,31 @@ export const getNews = asyncHandler(async (req, res) => {
 export const listGallery = asyncHandler(async (req, res) => {
   const { page, limit } = req.query;
 
-  const filter = { published: true };
+  // The model flag is `active` (there is no `published` field on a gallery item).
+  const filter = { active: true };
   const season = await resolveSeason(req.query.season);
   if (season) filter.seasonId = season._id;
 
+  if (/^[a-f\d]{24}$/i.test(String(req.query.matchId ?? ""))) {
+    filter.matchId = req.query.matchId;
+  }
+  if (req.query.type === "PHOTO" || req.query.type === "VIDEO") {
+    filter.type = req.query.type;
+  }
+
   const [items, total] = await Promise.all([
     Gallery.find(filter)
-      .sort({ takenAt: -1, createdAt: -1 })
+      .sort({ order: 1, capturedAt: -1, createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
       .lean(),
     Gallery.countDocuments(filter),
   ]);
 
-  res.status(200).json(paginated({ items, total, page, limit }));
+  // The page reads `id`; lean() documents only carry `_id`.
+  const shaped = items.map(({ _id, ...rest }) => ({ id: _id, ...rest }));
+
+  res.status(200).json(paginated({ items: shaped, total, page, limit }));
 });
 
 /** GET /api/v1/videos */
@@ -124,59 +142,83 @@ export const listSponsors = asyncHandler(async (req, res) => {
  * Awards
  * ------------------------------------------------------------------ */
 
+/** Display order of honours: the champion first, the medals last. */
+const AWARD_ORDER = [
+  "CHAMPION",
+  "RUNNER_UP",
+  "MAN_OF_THE_TOURNAMENT",
+  "BEST_BATTER",
+  "BEST_BOWLER",
+  "BEST_FIELDER",
+  "MAN_OF_THE_MATCH",
+  "PARTICIPATION_MEDAL",
+];
+
 /** GET /api/v1/awards */
 export const listAwards = asyncHandler(async (req, res) => {
-  const { page, limit } = req.query;
-
   const filter = {};
   const season = await resolveSeason(req.query.season);
   if (season) filter.seasonId = season._id;
 
-  const [items, total] = await Promise.all([
-    Award.find(filter)
-      .sort({ awardedAt: -1, createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .populate("playerId", "fullName jerseyName jerseyNo photoUrl")
-      .populate("teamId", "name shortName slug logoUrl themeColor")
-      .lean(),
-    Award.countDocuments(filter),
-  ]);
+  if (/^[a-f\d]{24}$/i.test(String(req.query.matchId ?? ""))) {
+    filter.matchId = req.query.matchId;
+  }
+
+  // A season has a few dozen honours at most, so there is no pagination: the page
+  // shows them all, ordered by the tournament's own hierarchy.
+  const items = await Award.find(filter)
+    .populate("winnerPlayerId", "fullName jerseyName jerseyNo photoUrl")
+    .populate("winnerTeamId", "name shortName slug logoUrl themeColor")
+    .lean();
+
+  const rank = (type) => {
+    const index = AWARD_ORDER.indexOf(type);
+    return index === -1 ? AWARD_ORDER.length : index;
+  };
+  items.sort(
+    (a, b) =>
+      rank(a.type) - rank(b.type) ||
+      new Date(a.createdAt) - new Date(b.createdAt),
+  );
 
   const shaped = items.map((award) => ({
     id: award._id,
-    title: award.title,
-    description: award.description,
-    category: award.category,
-    awardedAt: award.awardedAt,
-    imageUrl: award.imageUrl ?? "",
-    player: award.playerId
+    type: award.type,
+    matchId: award.matchId ?? null,
+    statValue: award.statValue ?? "",
+    noteBn: award.noteBn ?? "",
+    noteEn: award.noteEn ?? "",
+    isSquadWide: Boolean(award.isSquadWide),
+    winnerPlayerId: award.winnerPlayerId
       ? {
-          id: award.playerId._id,
-          fullName: award.playerId.fullName,
-          jerseyName: award.playerId.jerseyName,
-          jerseyNo: award.playerId.jerseyNo,
-          photoUrl: award.playerId.photoUrl ?? "",
+          id: award.winnerPlayerId._id,
+          fullName: award.winnerPlayerId.fullName,
+          jerseyName: award.winnerPlayerId.jerseyName,
+          jerseyNo: award.winnerPlayerId.jerseyNo,
+          photoUrl: award.winnerPlayerId.photoUrl ?? "",
         }
       : null,
-    team: award.teamId
+    winnerTeamId: award.winnerTeamId
       ? {
-          id: award.teamId._id,
-          name: award.teamId.name,
-          shortName: award.teamId.shortName,
-          slug: award.teamId.slug,
-          logoUrl: award.teamId.logoUrl ?? "",
-          themeColor: award.teamId.themeColor ?? "",
+          id: award.winnerTeamId._id,
+          name: award.winnerTeamId.name,
+          shortName: award.winnerTeamId.shortName,
+          slug: award.winnerTeamId.slug,
+          logoUrl: award.winnerTeamId.logoUrl ?? "",
+          themeColor: award.winnerTeamId.themeColor ?? "",
         }
       : null,
   }));
 
-  res.status(200).json(paginated({ items: shaped, total, page, limit }));
+  res.status(200).json(ok(shaped));
 });
 
 /* ------------------------------------------------------------------ *
  * Announcements
  * ------------------------------------------------------------------ */
+
+/** Urgent notices lead the ticker, then important ones, then everything else. */
+const PRIORITY_RANK = { URGENT: 0, IMPORTANT: 1, NORMAL: 2 };
 
 /** GET /api/v1/announcements */
 export const listAnnouncements = asyncHandler(async (req, res) => {
@@ -188,10 +230,20 @@ export const listAnnouncements = asyncHandler(async (req, res) => {
   };
   if (season) filter.seasonId = season._id;
 
-  const items = await Announcement.find(filter)
-    .sort({ priority: -1, createdAt: -1 })
-    .limit(20)
+  const found = await Announcement.find(filter)
+    .sort({ createdAt: -1 })
+    .limit(50)
     .lean();
+
+  // Sorting priority in MongoDB would be alphabetical (URGENT, NORMAL, IMPORTANT),
+  // which puts "normal" above "important". Rank it here; the sort is stable, so
+  // newest-first is kept inside each priority.
+  const items = found
+    .sort(
+      (a, b) =>
+        (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2),
+    )
+    .slice(0, 20);
 
   res.status(200).json(ok(items));
 });

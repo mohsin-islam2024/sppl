@@ -5,6 +5,7 @@ import {
   updateUserRole,
   updateOwnProfile,
   deactivateUser,
+  setUserActive,
 } from "../controllers/user.controller.js";
 import {
   requireAuth,
@@ -17,6 +18,7 @@ import {
   updateUserRoleSchema,
   updateProfileSchema,
 } from "@sppl/shared/validation/schemas.js";
+import { setUserActiveSchema } from "@sppl/shared/validation/adminSchemas.js";
 import { ROLES } from "@sppl/shared/constants/roles.js";
 
 const router = Router();
@@ -44,6 +46,13 @@ router.patch(
   requireRole(ROLES.SUPER_ADMIN),
   validate({ body: updateUserRoleSchema }),
   updateUserRole,
+);
+router.patch(
+  "/:id/active",
+  writeLimiter,
+  requireRole(ROLES.SUPER_ADMIN),
+  validate({ body: setUserActiveSchema }),
+  setUserActive,
 );
 router.delete(
   "/:id",

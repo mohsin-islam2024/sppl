@@ -111,6 +111,9 @@ export default function MatchDetail() {
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-content-secondary">
             {match.startAt && <span>{formatDate(match.startAt, lang, { withTime: true })}</span>}
             {match.venue && <span>{match.venue}</span>}
+            {match.oversPerInnings && (
+              <span>{t('match.oversFormat', { count: toBengaliDigits(match.oversPerInnings) })}</span>
+            )}
             {match.stage && (
               <span className="badge bg-surface-sunken">{t(`match.${stageKey(match.stage)}`)}</span>
             )}
@@ -123,6 +126,15 @@ export default function MatchDetail() {
             <p className="font-display text-lg font-bold text-gold">{resultText}</p>
           ) : (
             <p className="text-sm text-content-muted">{t('match.resultPending')}</p>
+          )}
+
+          {match.substitutions?.length > 0 && (
+            <p className="text-xs text-content-muted">
+              {t('match.replacements')}:{' '}
+              {match.substitutions
+                .map((entry) => t('scoring.replacedFor', { in: entry.in, out: entry.out }))
+                .join(' · ')}
+            </p>
           )}
 
           {/* Toss is optional and may be null on a match entered by hand. */}

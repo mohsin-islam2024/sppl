@@ -83,11 +83,11 @@ export function buildMatchSchema(match, teams = {}) {
   const teamB = teams[match.teamBId];
 
   return {
-    '@context': '[schema.org](https://schema.org)',
+    '@context': 'https://schema.org',
     '@type': 'SportsEvent',
     name: `${teamA?.name ?? 'Team A'} vs ${teamB?.name ?? 'Team B'}`,
     startDate: match.startAt,
-    eventStatus: '[schema.org](https://schema.org/EventScheduled)',
+    eventStatus: 'https://schema.org/EventScheduled',
     location: {
       '@type': 'Place',
       name: match.venue || 'Sotahar Poshchim Para',

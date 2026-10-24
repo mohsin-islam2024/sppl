@@ -213,6 +213,8 @@ export const createMatchSchema = z.object({
   teamAId: objectId,
   teamBId: objectId,
   venue: optionalText(200),
+  /** Overs for this match; null / omitted means the season's rule applies. */
+  oversPerInnings: z.coerce.number().int().min(1).max(50).nullable().optional(),
   startAt: z.coerce.date(),
   streamUrl: z.string().url().optional().or(z.literal("")),
   umpireIds: z.array(objectId).max(4).optional(),
@@ -256,6 +258,18 @@ export const recordBallSchema = z
     wicketType: z.enum(Object.values(WICKET_TYPE)).nullable().default(null),
     dismissedPlayerId: objectId.nullable().default(null),
     fielderId: objectId.nullable().default(null),
+    /**
+     * Chosen by the scorer's device for each delivery and re-sent unchanged on a retry.
+     * If the first attempt reached the server but its reply was lost, the retry carries
+     * the same id and is recognised instead of being counted as a second ball.
+     */
+    clientBallId: z
+      .string()
+      .trim()
+      .min(8)
+      .max(64)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional(),
     /** Optional free-text commentary; otherwise generated from the delivery. */
     commentaryBn: optionalText(300),
     commentaryEn: optionalText(300),
@@ -408,7 +422,15 @@ export const signUploadSchema = z.object({
  * Query helpers
  * ------------------------------------------------------------------ */
 
-export const paginationSchema = z.object({
-  page: formNumber({ min: 1, fallback: 1 }),
-  limit: formNumber({ min: 1, max: 100, fallback: 20 }),
-});
+/**
+ * `.passthrough()` is required: the list endpoints validate their query with this
+ * schema and then read `season`, `search`, `role`, `team`, `matchId` and so on from
+ * the parsed result. A plain z.object() strips every key it does not declare, which
+ * silently dropped those filters and always returned the current season.
+ */
+export const paginationSchema = z
+  .object({
+    page: formNumber({ min: 1, fallback: 1 }),
+    limit: formNumber({ min: 1, max: 100, fallback: 20 }),
+  })
+  .passthrough();

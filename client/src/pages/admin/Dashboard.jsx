@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import SEO from '../../components/common/SEO.jsx';
 import useAuth from '../../hooks/useAuth.js';
+import { toBengaliDigits } from '../../utils/format.js';
 
 /**
  * Admin dashboard.
@@ -94,7 +95,7 @@ function StatCard({ label, value, highlight = false }) {
           highlight ? 'text-gold' : 'text-content-primary'
         }`}
       >
-        {value}
+        {typeof value === 'number' || typeof value === 'string' ? toBengaliDigits(value) : value}
       </p>
     </div>
   );

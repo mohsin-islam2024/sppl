@@ -6,6 +6,7 @@ import EmptyState from '../../components/common/EmptyState.jsx';
 import { GridSkeleton, ErrorState } from '../../components/common/Skeleton.jsx';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
 import { useSeasonTeams } from '../../hooks/useSeason.js';
+import { toBengaliDigits } from '../../utils/format.js';
 
 /**
  * Teams page.
@@ -28,7 +29,7 @@ export default function Teams() {
         title={t('nav.teams')}
         subtitle={
           season
-            ? t('teams.subtitle', { season: `${season.shortName} ${season.seasonNo}` })
+            ? t('teams.subtitle', { season: `${season.shortName} ${toBengaliDigits(season.seasonNo)}` })
             : undefined
         }
       />
