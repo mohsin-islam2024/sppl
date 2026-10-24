@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
 import SeasonSwitcher from '../season/SeasonSwitcher.jsx';
+import { toBengaliDigits } from '../../utils/format.js';
 
 /**
  * Header for every admin management page.
@@ -22,7 +23,7 @@ export default function AdminPageHeader({ title, description, action = null, sho
           </h1>
           {season && (
             <span className="badge bg-brand/15 text-brand-light">
-              {season.shortName} {season.seasonNo} · {season.year}
+              {season.shortName} {toBengaliDigits(season.seasonNo)} · {toBengaliDigits(season.year)}
             </span>
           )}
         </div>

@@ -9,23 +9,26 @@
  *     dismissals has no average; printing 0.00 claims a fact that is not true.
  */
 
+import i18n from "../i18n/index.js";
+import { convertToBengaliDigits, convertToLatinDigits } from "./digits.js";
+
 /** Cricket over figure: legal balls -> "3.4". */
 export function formatOvers(balls = 0) {
   const safe = Math.max(0, Math.floor(balls || 0));
-  return `${Math.floor(safe / 6)}.${safe % 6}`;
+  return toBengaliDigits(`${Math.floor(safe / 6)}.${safe % 6}`);
 }
 
 /** Runs per over, to two decimals. */
 export function formatRunRate(runs = 0, balls = 0) {
   if (!balls) return "—";
-  return (runs / (balls / 6)).toFixed(2);
+  return toBengaliDigits((runs / (balls / 6)).toFixed(2));
 }
 
 /** A rate that may not exist yet. */
 export function formatRate(value, decimals = 2) {
   if (value === null || value === undefined || !Number.isFinite(value))
     return "—";
-  return Number(value).toFixed(decimals);
+  return toBengaliDigits(Number(value).toFixed(decimals));
 }
 
 /** Net run rate with an explicit sign, as cricket tables always show. */
@@ -33,13 +36,13 @@ export function formatNrr(value) {
   if (value === null || value === undefined || !Number.isFinite(value))
     return "—";
   const fixed = Number(value).toFixed(3);
-  return Number(fixed) > 0 ? `+${fixed}` : fixed;
+  return toBengaliDigits(Number(fixed) > 0 ? `+${fixed}` : fixed);
 }
 
 /** A bowling figure: "3/24", or null when the player has not bowled. */
 export function formatBowling(wickets, runs) {
   if (runs === null || runs === undefined) return null;
-  return `${wickets ?? 0}/${runs}`;
+  return toBengaliDigits(`${wickets ?? 0}/${runs}`);
 }
 
 /** Run margin text, e.g. "45 runs" / "6 wickets". */
@@ -69,15 +72,26 @@ const BN_MONTHS = [
   "ডিসেম্বর",
 ];
 
-const BN_DIGITS = ["০", "১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯"];
-
-/** Convert Western digits to Bengali digits. */
-export function toBengaliDigits(value) {
-  return String(value ?? "").replace(
-    /\d/g,
-    (digit) => BN_DIGITS[Number(digit)],
-  );
+/** True when the reader is using the site in Bangla. Bangla is also the fallback. */
+function isBanglaNow() {
+  return (i18n.resolvedLanguage || i18n.language || "bn").startsWith("bn");
 }
+
+/**
+ * A number as the reader should see it: Bengali digits in Bangla, Western digits in
+ * English.
+ *
+ * The name is kept from when this only ever produced Bengali digits, and about a
+ * hundred call sites use it. It used to convert unconditionally, so switching the site
+ * to English left every number it touched in Bengali digits. It now follows the
+ * language the reader has chosen; `localizeDigits` is the same function under a name
+ * that says what it does, for new code.
+ */
+export function toBengaliDigits(value) {
+  return isBanglaNow() ? convertToBengaliDigits(value) : convertToLatinDigits(value);
+}
+
+export const localizeDigits = toBengaliDigits;
 
 /**
  * Format a date.
@@ -109,8 +123,9 @@ export function formatDate(
   }
 
   if (lang === "bn") {
-    const datePart = `${toBengaliDigits(day)} ${BN_MONTHS[month]}${withYear ? ` ${toBengaliDigits(year)}` : ""}`;
-    return `${datePart}${time}`;
+    // The caller names the language, so convert explicitly rather than by the global one.
+    const datePart = `${convertToBengaliDigits(day)} ${BN_MONTHS[month]}${withYear ? ` ${convertToBengaliDigits(year)}` : ""}`;
+    return `${datePart}${convertToBengaliDigits(time)}`;
   }
 
   const monthEn = [
@@ -154,7 +169,7 @@ export function formatCountdown(targetDate, lang = "bn") {
 
   if (days > 1)
     return lang === "bn"
-      ? `${toBengaliDigits(days)} দিন বাকি`
+      ? `${convertToBengaliDigits(days)} দিন বাকি`
       : `${days} days to go`;
   if (days === 1) return lang === "bn" ? "আগামীকাল" : "Tomorrow";
   if (days === 0) return lang === "bn" ? "আজ" : "Today";

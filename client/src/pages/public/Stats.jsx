@@ -100,7 +100,7 @@ export default function Stats() {
         title={t('nav.stats')}
         subtitle={
           season
-            ? t('stats.subtitle', { season: `${season.shortName} ${season.seasonNo}` })
+            ? t('stats.subtitle', { season: `${season.shortName} ${toBengaliDigits(season.seasonNo)}` })
             : undefined
         }
       />

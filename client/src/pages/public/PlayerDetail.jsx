@@ -1,4 +1,5 @@
-import { useParams, Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import SEO from '../../components/common/SEO.jsx';
@@ -6,6 +7,7 @@ import PageHeader from '../../components/layout/PageHeader.jsx';
 import EmptyState from '../../components/common/EmptyState.jsx';
 import { ErrorState } from '../../components/common/Skeleton.jsx';
 import playerService from '../../services/playerService.js';
+import { useActiveSeason } from '../../hooks/useActiveSeason.js';
 import { initials, toBengaliDigits, formatRate } from '../../utils/format.js';
 
 /**
@@ -24,13 +26,32 @@ import { initials, toBengaliDigits, formatRate } from '../../utils/format.js';
 export default function PlayerDetail() {
   const { t } = useTranslation();
   const { id } = useParams();
+  const { setSeason } = useActiveSeason();
+
+  // The season picked in the header lives in the URL (?season=). Only an explicit pick
+  // is sent to the API: a page opened from a link keeps showing the player it was
+  // opened for, and only a deliberate switch changes the season.
+  const [searchParams] = useSearchParams();
+  const chosenSeason = searchParams.get('season');
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['player', id],
-    queryFn: () => playerService.get(id),
+    // The season is part of the key. It was not, so switching seasons found the same
+    // cached answer and nothing on the page changed.
+    queryKey: ['player', id, chosenSeason ?? 'own'],
+    queryFn: () => playerService.get(id, chosenSeason ? { season: chosenSeason } : {}),
     enabled: Boolean(id),
     staleTime: 5 * 60 * 1000,
+    // Keep the previous figures on screen while the next season loads, so the page
+    // does not flash empty on every switch.
+    placeholderData: (previous) => previous,
   });
+
+  // Opened without a season: make the header's season selector show the season of the
+  // player being displayed, instead of whatever season the site happens to default to.
+  useEffect(() => {
+    if (!chosenSeason && data?.season?.slug) setSeason(data.season.slug);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosenSeason, data?.season?.slug]);
 
   if (isLoading) {
     return (
@@ -51,7 +72,7 @@ export default function PlayerDetail() {
     );
   }
 
-  const { player, team, season, career, careerTotals } = data ?? {};
+  const { player, team, season, career, careerTotals, seasons = [], noRecord } = data ?? {};
 
   if (!player) {
     return (
@@ -87,6 +108,43 @@ export default function PlayerDetail() {
       />
 
       <div className="container-page space-y-8 py-8">
+        {/* The seasons this person has played: a second way to switch, and the way out
+            of a "no record" page. */}
+        {seasons.length > 1 && (
+          <nav aria-label={t('player.seasonsPlayed')} className="flex flex-wrap items-center gap-2">
+            <span className="text-2xs font-semibold uppercase tracking-widest text-content-muted">
+              {t('player.seasonsPlayed')}
+            </span>
+            {seasons.map((entry) => {
+              const active = entry.season?.slug === season?.slug && !noRecord;
+              return (
+                <button
+                  key={entry.playerId}
+                  type="button"
+                  onClick={() => setSeason(entry.season?.slug)}
+                  aria-pressed={active}
+                  className={`rounded-pill border px-3 py-1.5 text-xs font-semibold transition ${
+                    active
+                      ? 'border-brand bg-brand/15 text-brand-light'
+                      : 'border-surface-border text-content-secondary hover:bg-surface-sunken'
+                  }`}
+                >
+                  {entry.season?.shortName} {toBengaliDigits(entry.season?.seasonNo)} · {toBengaliDigits(entry.season?.year)}
+                </button>
+              );
+            })}
+          </nav>
+        )}
+
+        {noRecord && (
+          <p role="status" className="rounded-lg bg-gold/10 px-4 py-3 text-sm font-semibold text-gold-dark">
+            {t('player.noRecordInSeason', {
+              player: player.jerseyName || player.fullName,
+              season: `${noRecord.season?.shortName ?? ''} ${toBengaliDigits(noRecord.season?.seasonNo)} · ${toBengaliDigits(noRecord.season?.year)}`,
+            })}
+          </p>
+        )}
+
         <section className="card flex flex-wrap items-center gap-5 p-5">
           {player.photoUrl ? (
             <img
@@ -130,7 +188,7 @@ export default function PlayerDetail() {
               )}
               {season && (
                 <span className="text-content-muted">
-                  {season.shortName} {season.seasonNo} · {toBengaliDigits(season.year)}
+                  {season.shortName} {toBengaliDigits(season.seasonNo)} · {toBengaliDigits(season.year)}
                 </span>
               )}
             </div>
@@ -319,7 +377,7 @@ function Stat({ label, value, highlight = false }) {
           highlight ? 'text-gold' : 'text-content-primary'
         }`}
       >
-        {typeof value === 'number' ? toBengaliDigits(value) : value}
+        {typeof value === 'number' || typeof value === 'string' ? toBengaliDigits(value) : value}
       </dd>
     </div>
   );

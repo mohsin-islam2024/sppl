@@ -81,6 +81,13 @@ export async function recomputeSeasonStats(seasonId) {
       }
     }
 
+    // A player replaced mid-match (injury, illness) was in the XI and took part, but is
+    // no longer in the current squad. Without this he would show innings and wickets
+    // on a match he was never credited with playing.
+    for (const entry of match.substitutions ?? []) {
+      rowFor(entry.outPlayerId, entry.teamId).matches += 1;
+    }
+
     const manOfMatch = match.motmPlayerId ? String(match.motmPlayerId) : null;
     if (manOfMatch) {
       rowFor(match.motmPlayerId, null).playerOfMatchAwards += 1;
@@ -99,7 +106,11 @@ export async function recomputeSeasonStats(seasonId) {
         row.fours += line.fours ?? 0;
         row.sixes += line.sixes ?? 0;
 
-        if (line.isOut) {
+        // Retiring hurt ends an innings but is not a dismissal: it must not count as a
+        // wicket against the batter, add a duck, or lower his average.
+        const dismissed = line.isOut && !line.retiredHurt;
+
+        if (dismissed) {
           row.dismissals += 1;
           if ((line.runs ?? 0) === 0) row.ducks += 1;
         } else {
@@ -110,10 +121,10 @@ export async function recomputeSeasonStats(seasonId) {
         const score = line.runs ?? 0;
         if (
           score > row.highScore ||
-          (score === row.highScore && !line.isOut && !row.highScoreNotOut)
+          (score === row.highScore && !dismissed && !row.highScoreNotOut)
         ) {
           row.highScore = score;
-          row.highScoreNotOut = !line.isOut;
+          row.highScoreNotOut = !dismissed;
         }
 
         if (score >= 100) row.hundreds += 1;
@@ -210,8 +221,11 @@ export async function recomputeAllStats() {
  *
  * @param {string} playerId
  */
-export async function getCareerTotals(playerId) {
-  const rows = await PlayerStat.find({ playerId }).lean();
+export async function getCareerTotals(playerIds) {
+  // One id or a list. A person has a separate Player record in each season, so a real
+  // career total has to add up the records of ALL their seasons, not just one.
+  const ids = Array.isArray(playerIds) ? playerIds : [playerIds];
+  const rows = await PlayerStat.find({ playerId: { $in: ids } }).lean();
   if (!rows.length) return null;
 
   const total = rows.reduce(

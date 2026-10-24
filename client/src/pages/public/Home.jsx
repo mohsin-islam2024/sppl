@@ -12,6 +12,7 @@ import {
   ErrorState,
 } from '../../components/common/Skeleton.jsx';
 import EmptyState from '../../components/common/EmptyState.jsx';
+import AnnouncementBanner from '../../components/common/AnnouncementBanner.jsx';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
 import { useSeasonSummary, useSeasonTeams, useSeasonRealtime } from '../../hooks/useSeason.js';
 import { usePointsTable } from '../../hooks/usePointsTable.js';
@@ -82,12 +83,15 @@ export default function Home() {
       <SEO
         title={
           season
-            ? `${season.shortName} ${season.seasonNo} · ${season.year}`
+            ? `${season.shortName} ${toBengaliDigits(season.seasonNo)} · ${toBengaliDigits(season.year)}`
             : t('common.appName')
         }
         description={t('home.heroSubtitle')}
         path="/"
       />
+
+      {/* Notices from the organisers, above everything else. Renders nothing when there are none. */}
+      <AnnouncementBanner season={identifier} />
 
       {/* Hero */}
       <section className="relative overflow-hidden border-b border-surface-border bg-surface-sunken">
@@ -147,7 +151,7 @@ export default function Home() {
           )}
 
           {!isLoading && summary?.stats && (
-            <dl className="mt-8 grid max-w-2xl gap-3 sm:grid-cols-3">
+            <dl className="mt-8 grid max-w-lg gap-3 grid-cols-3">
               <StatCard label={t('home.statTeams')} value={summary.stats.teams} />
               <StatCard label={t('home.statPlayers')} value={summary.stats.players} />
               <StatCard label={t('home.statMatches')} value={summary.stats.matches} />

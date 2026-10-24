@@ -77,7 +77,18 @@ export default function MatchCard({ match, showStage = false }) {
         )}
 
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-          {match.venue && <span className="text-xs text-content-muted">{match.venue}</span>}
+          {(match.venue || match.oversPerInnings) && (
+            <span className="text-xs text-content-muted">
+              {[
+                match.venue,
+                match.oversPerInnings
+                  ? t('match.oversFormat', { count: toBengaliDigits(match.oversPerInnings) })
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          )}
           <Link
             to={`/matches/${match.id}`}
             className="text-xs font-semibold text-brand-light hover:underline"

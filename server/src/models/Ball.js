@@ -31,6 +31,8 @@ const ballSchema = new mongoose.Schema(
     /** Total legal balls bowled after this delivery (1-based). */
     legalBallNumber: { type: Number, required: true, min: 1 },
     sequence: { type: Number, required: true, min: 1 },
+    /** The scorer's own id for this delivery; lets a retried request be recognised. */
+    clientBallId: { type: String, default: null, maxlength: 64 },
 
     batterId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -106,6 +108,12 @@ const ballSchema = new mongoose.Schema(
 
 /** A legal position in a match may hold only one delivery. */
 ballSchema.index({ matchId: 1, innings: 1, sequence: 1 }, { unique: true });
+// One delivery per client id within a match. Partial, because older balls and balls
+// sent without an id have none, and they must not collide with each other on null.
+ballSchema.index(
+  { matchId: 1, clientBallId: 1 },
+  { unique: true, partialFilterExpression: { clientBallId: { $type: "string" } } },
+);
 ballSchema.index({ matchId: 1, innings: 1, overIndex: 1, ballInOver: 1 });
 ballSchema.index({ matchId: 1, createdAt: 1 });
 

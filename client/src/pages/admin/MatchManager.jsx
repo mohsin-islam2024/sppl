@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -48,6 +49,9 @@ const STATUS_OPTIONS = [
   { value: 'ABANDONED', label: 'পরিত্যক্ত / Abandoned' },
 ];
 
+/** Overs a match can be played over. The first choice, an empty value, means "use the season's rule". */
+const OVER_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 25, 30, 40, 50];
+
 const matchSchema = z
   .object({
     matchNo: z.coerce.number().int().min(1, 'Must be at least 1').catch(1),
@@ -56,6 +60,7 @@ const matchSchema = z
     teamBId: z.string().min(1, 'Choose the second team'),
     startAt: z.string().min(1, 'A date and time is required'),
     venue: z.string().trim().max(200).optional().catch(''),
+    oversPerInnings: z.string().optional().catch(''),
     status: z
       .enum(['UPCOMING', 'TOSS', 'LIVE', 'INNINGS_BREAK', 'COMPLETED', 'ABANDONED'])
       .catch('UPCOMING'),
@@ -84,6 +89,7 @@ const hasStarted = (match) => match && match.status && match.status !== 'UPCOMIN
 
 export default function MatchManager() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
   const { season, identifier } = useActiveSeason();
 
@@ -117,12 +123,26 @@ export default function MatchManager() {
       teamBId: '',
       startAt: '',
       venue: '',
+      oversPerInnings: '',
       status: 'UPCOMING',
       streamUrl: '',
     },
   });
 
   const teamOptions = teams.map((team) => ({ value: team.id, label: team.name }));
+
+  // The first option is "use the season's overs". A match already set to a length that
+  // is not in the list (set some other way) is added so its value is not silently lost.
+  const seasonOvers = season?.matchRules?.oversPerInnings ?? 10;
+  const overChoices = [...OVER_CHOICES];
+  if (editing?.oversPerInnings && !overChoices.includes(editing.oversPerInnings)) {
+    overChoices.push(editing.oversPerInnings);
+    overChoices.sort((a, b) => a - b);
+  }
+  const overOptions = [
+    { value: '', label: t('admin.oversSeasonDefault', { count: seasonOvers }) },
+    ...overChoices.map((count) => ({ value: String(count), label: t('admin.oversCount', { count }) })),
+  ];
 
   const selectedTeamA = watch('teamAId');
   const teamBOptions = teamOptions.filter((option) => option.value !== selectedTeamA);
@@ -139,6 +159,7 @@ export default function MatchManager() {
       teamBId: '',
       startAt: isoToLocal(new Date(Date.now() + 60 * 60 * 1000)),
       venue: '',
+      oversPerInnings: '',
       status: 'UPCOMING',
       streamUrl: '',
     });
@@ -155,6 +176,7 @@ export default function MatchManager() {
       teamBId: String(match.teamBId?._id ?? match.teamBId ?? ''),
       startAt: isoToLocal(match.startAt),
       venue: match.venue ?? '',
+      oversPerInnings: match.oversPerInnings ? String(match.oversPerInnings) : '',
       status: match.status ?? 'UPCOMING',
       streamUrl: match.streamUrl ?? '',
     });
@@ -176,6 +198,8 @@ export default function MatchManager() {
       teamBId: values.teamBId,
       startAt: localToIso(values.startAt),
       venue: values.venue ?? '',
+      // Empty means "the season's rule"; null tells the server to clear any override.
+      oversPerInnings: values.oversPerInnings ? Number(values.oversPerInnings) : null,
       status: values.status,
       streamUrl: values.streamUrl ?? '',
     };
@@ -226,6 +250,9 @@ export default function MatchManager() {
           </p>
           {row.stage !== 'LEAGUE' && (
             <p className="text-2xs text-gold-dark">{row.stage.replace('_', ' ')}</p>
+          )}
+          {row.oversPerInnings && (
+            <p className="text-2xs text-content-muted">{t('admin.oversCount', { count: row.oversPerInnings })}</p>
           )}
         </div>
       ),
@@ -306,6 +333,16 @@ export default function MatchManager() {
           empty={matchesQuery.isLoading ? t('common.loading') : t('admin.noMatches')}
           actions={(row) => (
             <>
+              {/* A finished tie is settled by a super over; this is the way to it. */}
+              {row.status === 'COMPLETED' &&
+                ['TIE', 'SUPER_OVER_WIN'].includes(row.result?.resultType) && (
+                  <RowAction
+                    tone="primary"
+                    onClick={() => navigate(`/admin/live-scoring/${row._id ?? row.id}/super-over`)}
+                  >
+                    {t('match.superOver')}
+                  </RowAction>
+                )}
               <RowAction onClick={() => openEdit(row)}>{t('common.edit')}</RowAction>
               <RowAction
                 tone="danger"
@@ -363,6 +400,14 @@ export default function MatchManager() {
                 error={errors.startAt?.message}
                 {...register('startAt')}
               />
+              <SelectField
+                id="oversPerInnings"
+                label={t('admin.oversThisMatch')}
+                hint={editingStarted ? t('admin.oversLockedHint') : undefined}
+                options={overOptions}
+                disabled={editingStarted}
+                {...register('oversPerInnings')}
+              />
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -399,7 +444,7 @@ export default function MatchManager() {
                 id="streamUrl"
                 label={t('admin.streamUrl')}
                 hint={t('admin.streamUrlHint')}
-                placeholder="[youtube.com](https://youtube.com/watch?v=)"
+                placeholder="https://youtube.com/watch?v="
                 {...register('streamUrl')}
               />
             </div>

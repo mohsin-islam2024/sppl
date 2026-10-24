@@ -7,6 +7,7 @@ import { resolveSeason } from "../services/seasonService.js";
 import { getCareerTotals } from "../services/statsService.js";
 import { PLAYER_ROLE } from "@sppl/shared/constants/tournament.js";
 import ApiError from "../utils/ApiError.js";
+import { nameMatcher, pickSeasonRecord } from "../utils/playerIdentity.js";
 
 /**
  * Public player reads.
@@ -97,49 +98,99 @@ export const listPlayers = asyncHandler(async (req, res) => {
  * GET /api/v1/players/:id
  */
 export const getPlayer = asyncHandler(async (req, res) => {
-  const player = await Player.findById(req.params.id)
-    .populate("teamId", "name shortName slug logoUrl themeColor")
-    .populate("seasonId", "seasonNo year shortName slug status")
+  const populateTeam = ["teamId", "name shortName slug logoUrl themeColor"];
+  const populateSeason = ["seasonId", "seasonNo year shortName slug status"];
+
+  const own = await Player.findById(req.params.id)
+    .populate(...populateTeam)
+    .populate(...populateSeason)
     .lean();
 
-  if (!player) throw ApiError.notFound("Player not found");
+  if (!own) throw ApiError.notFound("Player not found");
 
-  const stat = await PlayerStat.findOne({
-    seasonId: player.seasonId._id,
-    playerId: player._id,
-  }).lean();
+  // The same person in other seasons. Each season has its own Player record, linked
+  // only by name (see utils/playerIdentity.js), so look them up that way.
+  const others = await Player.find({
+    _id: { $ne: own._id },
+    fullName: nameMatcher(own.fullName),
+  })
+    .populate(...populateTeam)
+    .populate(...populateSeason)
+    .lean();
 
-  // The career view sums every season this player has appeared in. Derived on read
-  // so it can never drift from the per-season figures.
-  const careerTotals = await getCareerTotals(player._id);
+  const records = [own, ...others].sort(
+    (a, b) =>
+      (a.seasonId?.year ?? 0) - (b.seasonId?.year ?? 0) ||
+      (a.seasonId?.seasonNo ?? 0) - (b.seasonId?.seasonNo ?? 0),
+  );
+
+  // `?season=` is the season the reader picked in the header. Without it the page keeps
+  // showing the player it was opened for. A season that does not exist is ignored.
+  let requested = null;
+  if (req.query.season) {
+    requested = await resolveSeason(req.query.season);
+  }
+
+  const { target, noRecord } = pickSeasonRecord(records, {
+    ownId: own._id,
+    requestedSeasonId: requested?._id ?? null,
+  });
+  const player = target ?? own;
+
+  // Figures belong to the season being shown. When the person has no record in the
+  // chosen season there is nothing to show; the page says so.
+  const stat = noRecord
+    ? null
+    : await PlayerStat.findOne({
+        seasonId: player.seasonId._id,
+        playerId: player._id,
+      }).lean();
+
+  // The career view sums every season this person has appeared in, derived on read so
+  // it can never drift from the per-season figures.
+  const careerTotals = await getCareerTotals(records.map((record) => record._id));
+
+  const seasonOf = (record) =>
+    record.seasonId
+      ? {
+          id: record.seasonId._id,
+          seasonNo: record.seasonId.seasonNo,
+          year: record.seasonId.year,
+          shortName: record.seasonId.shortName,
+          slug: record.seasonId.slug,
+          status: record.seasonId.status,
+        }
+      : null;
+
+  const teamOf = (record) =>
+    record.teamId?.name
+      ? {
+          id: record.teamId._id,
+          name: record.teamId.name,
+          shortName: record.teamId.shortName,
+          slug: record.teamId.slug,
+          logoUrl: record.teamId.logoUrl ?? "",
+          themeColor: record.teamId.themeColor ?? "",
+        }
+      : null;
 
   res.status(200).json(
     ok({
       player: toPlayerProfile(player),
-      team: player.teamId?.name
-        ? {
-            id: player.teamId._id,
-            name: player.teamId.name,
-            shortName: player.teamId.shortName,
-            slug: player.teamId.slug,
-            logoUrl: player.teamId.logoUrl ?? "",
-            themeColor: player.teamId.themeColor ?? "",
-          }
-        : null,
-      season: player.seasonId
-        ? {
-            id: player.seasonId._id,
-            seasonNo: player.seasonId.seasonNo,
-            year: player.seasonId.year,
-            shortName: player.seasonId.shortName,
-            slug: player.seasonId.slug,
-            status: player.seasonId.status,
-          }
-        : null,
+      team: teamOf(player),
+      season: seasonOf(player),
       stats: toStatSummary(stat),
       // Two views: the season just selected, and the whole career across seasons.
       career: toCareerFigures(stat),
       careerTotals: toCareerTotals(careerTotals),
+      // Every season this person appears in, so the page can offer them.
+      seasons: records.map((record) => ({
+        playerId: record._id,
+        season: seasonOf(record),
+        team: teamOf(record),
+      })),
+      // Set when a season was asked for and this person has no record in it.
+      noRecord: noRecord && requested ? { season: seasonOf({ seasonId: requested }) } : null,
     }),
   );
 });

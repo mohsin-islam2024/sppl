@@ -45,7 +45,8 @@
     "login": "লগইন",
     "logout": "লগআউট",
     "register": "রেজিস্ট্রেশন",
-    "profile": "প্রোফাইল"
+    "profile": "প্রোফাইল",
+    "matches": "ম্যাচ"
   },
   "home": {
     
@@ -65,8 +66,8 @@
     "statTeams": "দল",
     "statPlayers": "খেলোয়াড়",
     "statMatches": "ম্যাচ",
-    "teamsLineDynamic": "{{teams}}টি দল। {{matches}}টি ম্যাচ। একটাই চ্যাম্পিয়ন।"
-
+    "teamsLineDynamic": "{{teams}}টি দল। {{matches}}টি ম্যাচ। একটাই চ্যাম্পিয়ন।",
+    "announcements": "ঘোষণা"
   },
   "season": {
     "switchLabel": "সিজন নির্বাচন করুন",
@@ -121,7 +122,10 @@
     "final": "ফাইনাল",
     "bat": "ব্যাটিং",
     "target": "লক্ষ্য: {{runs}} রান",
-    "bowl": "বোলিং"
+    "bowl": "বোলিং",
+    "seoDescription": "{{teamA}} বনাম {{teamB}}: স্কোরকার্ড, বল বাই বল ধারাবিবরণী ও ফলাফল। {{date}}",
+    "oversFormat": "{{count}} ওভার",
+    "replacements": "বদলি খেলোয়াড়"
   },
   "team": {
     "squad": "স্কোয়াড",
@@ -188,10 +192,9 @@
     "seoDescription": "{{player}} — {{team}}-এর খেলোয়াড়ের পরিসংখ্যান।",
     "careerTotals": "ক্যারিয়ার পরিসংখ্যান",
     "careerSeasons": "{{count}}টি সিজনে খেলেছেন",
-    "wickets": "উইকেট"
-
-
-
+    "wickets": "উইকেট",
+    "seasonsPlayed": "যে সিজনে খেলেছেন",
+    "noRecordInSeason": "{{season}}-এ {{player}}-এর কোনো রেকর্ড নেই।"
   },
   "auth": {
     "loginTitle": "লগইন করুন",
@@ -315,13 +318,133 @@
     "accessFull": "সম্পূর্ণ প্রবেশাধিকার",
     "accessContent": "কনটেন্ট ও ম্যাচ",
     "accessScoring": "শুধু স্কোরিং",
-    "accessMember": "সদস্য"
-
-
-
-
-
-
+    "accessMember": "সদস্য",
+    "saved": "সেভ হয়েছে",
+    "deleted": "মুছে ফেলা হয়েছে",
+    "saveFailed": "সেভ করা যায়নি",
+    "deleteFailed": "মুছতে পারা যায়নি",
+    "deleteItemTitle": "এটি মুছে ফেলবেন?",
+    "deleteItemBody": "“{{name}}” চিরতরে মুছে যাবে।",
+    "titleBn": "শিরোনাম (বাংলা)",
+    "titleEn": "শিরোনাম (ইংরেজি)",
+    "excerptBn": "সংক্ষেপ (বাংলা)",
+    "excerptEn": "সংক্ষেপ (ইংরেজি)",
+    "bodyBn": "বিস্তারিত (বাংলা)",
+    "bodyEn": "বিস্তারিত (ইংরেজি)",
+    "noteBn": "মন্তব্য (বাংলা)",
+    "noteEn": "মন্তব্য (ইংরেজি)",
+    "captionBn": "ক্যাপশন (বাংলা)",
+    "captionEn": "ক্যাপশন (ইংরেজি)",
+    "caption": "ক্যাপশন",
+    "published": "প্রকাশিত",
+    "draft": "খসড়া",
+    "publishedOn": "প্রকাশের তারিখ",
+    "status": "অবস্থা",
+    "publishHint": "সাইটে সবার জন্য দেখান",
+    "cover": "কভার ছবি",
+    "tags": "ট্যাগ",
+    "tagsHint": "কমা দিয়ে আলাদা করুন",
+    "slugAutoHint": "খালি রাখলে ইংরেজি শিরোনাম থেকে নিজে তৈরি হবে",
+    "chooseImage": "ছবি বাছাই করুন",
+    "replaceImage": "ছবি বদলান",
+    "removeImage": "সরান",
+    "logo": "লোগো",
+    "startDate": "শুরুর তারিখ",
+    "endDate": "শেষের তারিখ",
+    "uploading": "আপলোড হচ্ছে",
+    "imageHint": "JPG বা PNG, সর্বোচ্চ ১০ এমবি",
+    "newsHelp": "এই সিজনের সংবাদ লিখুন ও প্রকাশ করুন",
+    "newNews": "নতুন সংবাদ",
+    "noNews": "এখনো কোনো সংবাদ নেই",
+    "galleryHelp": "ম্যাচের ছবি আপলোড করুন ও ক্যাপশন লিখুন",
+    "uploadPhotos": "ছবি আপলোড করুন",
+    "uploadPhotosHint": "একসাথে অনেক ছবি বাছাই করা যায়",
+    "photosUploaded": "{{count}}টি ছবি আপলোড হয়েছে",
+    "noPhotos": "এখনো কোনো ছবি নেই",
+    "sponsorsHelp": "সাইটে দেখানো স্পনসর যোগ করুন",
+    "newSponsor": "নতুন স্পনসর",
+    "noSponsors": "এখনো কোনো স্পনসর নেই",
+    "sponsorName": "স্পনসরের নাম",
+    "tier": "ধরন",
+    "tierTitle": "টাইটেল স্পনসর",
+    "tierPlatinum": "প্লাটিনাম",
+    "tierGold": "গোল্ড",
+    "tierPartner": "পার্টনার",
+    "website": "ওয়েবসাইট",
+    "phone": "ফোন",
+    "address": "ঠিকানা",
+    "awardsHelp": "চ্যাম্পিয়ন ও ব্যক্তিগত পুরস্কার ঠিক করুন",
+    "newAward": "নতুন পুরস্কার",
+    "noAwards": "এখনো কোনো পুরস্কার নেই",
+    "awardType": "পুরস্কার",
+    "winner": "বিজয়ী",
+    "winnerTeam": "বিজয়ী দল",
+    "winnerPlayer": "বিজয়ী খেলোয়াড়",
+    "statValue": "পরিসংখ্যান",
+    "statValueHint": "যেমন: ৩১২ রান",
+    "squadWide": "দলের সব খেলোয়াড়ের জন্য",
+    "forMatch": "ম্যাচ",
+    "announcementsHelp": "সাইটের উপরে দেখানো ঘোষণা",
+    "newAnnouncement": "নতুন ঘোষণা",
+    "noAnnouncements": "এখনো কোনো ঘোষণা নেই",
+    "priority": "গুরুত্ব",
+    "priorityNormal": "সাধারণ",
+    "priorityImportant": "গুরুত্বপূর্ণ",
+    "priorityUrgent": "জরুরি",
+    "expiresAt": "যে সময়ের পরে লুকাবে",
+    "expiresHint": "খালি রাখলে সবসময় দেখাবে",
+    "videos": "ভিডিও",
+    "videosHelp": "YouTube বা Facebook-এর লিংক বসিয়ে ম্যাচের ভিডিও যোগ করুন",
+    "newVideo": "নতুন ভিডিও",
+    "noVideos": "এখনো কোনো ভিডিও নেই",
+    "videoUrl": "ভিডিওর লিংক",
+    "videoUrlHint": "YouTube বা Facebook থেকে পুরো লিংকটি কপি করে বসান",
+    "videoSource": "উৎস",
+    "joined": "যোগ দিয়েছেন",
+    "usersHelp": "কে কী করতে পারবে তা বদলান, অথবা কোনো অ্যাকাউন্ট বন্ধ করুন",
+    "searchUsers": "নাম বা ইমেইল দিয়ে খুঁজুন",
+    "allRoles": "সব ভূমিকা",
+    "noUsers": "কোনো ইউজার পাওয়া যায়নি",
+    "activate": "চালু করুন",
+    "deactivate": "বন্ধ করুন",
+    "roleUser": "দর্শক",
+    "rolePlayer": "খেলোয়াড়",
+    "roleScorer": "স্কোরার",
+    "roleUmpire": "আম্পায়ার",
+    "roleAdmin": "অ্যাডমিন",
+    "roleSuperAdmin": "সুপার অ্যাডমিন",
+    "confirmRoleChange": "{{name}}-কে {{role}} করবেন?",
+    "confirmActivate": "{{name}}-এর অ্যাকাউন্ট আবার চালু করবেন?",
+    "confirmDeactivate": "{{name}}-এর অ্যাকাউন্ট বন্ধ করবেন? তিনি আর লগইন করতে পারবেন না।",
+    "pointsHelp": "সম্পন্ন ম্যাচ থেকে পয়েন্ট টেবিল হিসাব করা হয়",
+    "recalculate": "আবার হিসাব করুন",
+    "pointsRecalculated": "পয়েন্ট টেবিল আবার হিসাব করা হয়েছে",
+    "noPoints": "এখনো কোনো পয়েন্ট নেই",
+    "pointsNote": "প্রতিটি ম্যাচের পর টেবিল নিজেই হালনাগাদ হয়। স্কোরিং স্ক্রিনের বাইরে কোনো ফলাফল বদলালে বা ম্যাচ মুছলেই শুধু “আবার হিসাব করুন” চাপুন।",
+    "liveScoringHelp": "যে ম্যাচের বল বাই বল স্কোর করবেন সেটি বেছে নিন",
+    "noScorableMatchesTitle": "স্কোর করার মতো কোনো ম্যাচ নেই",
+    "noScorableMatchesBody": "ম্যাচের সময় ঠিক হলে ও দুই দল নির্ধারিত হলে এখানে দেখা যাবে।",
+    "openConsole": "স্কোরিং স্ক্রিন খুলুন",
+    "superOverHelp": "প্রতি দলের একটি ওভার। টাই ম্যাচের ফয়সালায় দুই দলের স্কোর লিখুন।",
+    "superOverNotTied": "এই ম্যাচ শেষ হওয়া কোনো টাই নয়, তাই সুপার ওভারের কিছু নেই।",
+    "regularInnings": "নিয়মিত ইনিংস",
+    "battedFirst": "প্রথমে ব্যাট করেছে",
+    "battedSecond": "পরে ব্যাট করেছে",
+    "tiebreakWinner": "বিজয়ী (আয়োজকদের সিদ্ধান্তে)",
+    "superOverNeedsWinner": "সুপার ওভারও সমান, আর নকআউট ম্যাচে একজন বিজয়ী লাগবেই।",
+    "superOverWinner": "ম্যাচ জিতবে {{team}}",
+    "superOverSharedPoints": "আবার সমান: পয়েন্ট ভাগ হবে",
+    "recordSuperOver": "সুপার ওভার সেভ করুন",
+    "superOverSaved": "সুপার ওভার সেভ হয়েছে",
+    "backToMatches": "ম্যাচ তালিকায় ফিরুন",
+    "createFinal": "ফাইনাল তৈরি করুন",
+    "createFinalHelp": "শেষ হওয়া লিগের শীর্ষ দুই দলকে মুখোমুখি করে। সব লিগ ম্যাচ শেষ হলেই করা যাবে।",
+    "finalCreated": "ফাইনাল তৈরি হয়েছে",
+    "matchDate": "তারিখ ও সময়",
+    "oversThisMatch": "এই ম্যাচের ওভার",
+    "oversSeasonDefault": "সিজনের নিয়ম ({{count}} ওভার)",
+    "oversCount": "{{count}} ওভার",
+    "oversLockedHint": "ম্যাচ শুরু হলে আর বদলানো যাবে না"
   },
   "scoring": {
     "title": "লাইভ স্কোরিং",
@@ -395,10 +518,36 @@
     "freeHitRunOutOnly": "ফ্রি হিটে শুধু রান আউট সম্ভব।",
     "creaseIncomplete": "স্টাইকার, নন-স্টাইকার আর বোলার — তিনজনই আগে সেট করতে হবে।",
     "inningsMissing": "এই ম্যাচ লাইভ দেখাচ্ছে, কিন্তু ইনিংসের তথ্য পাওয়া যাচ্ছে না। ম্যাচটা রিস্টার্ট করতে হবে।",
-    "byeExtraPrompt": "বাই হিসেবে কত রান দৌড়েছে?"
-
-
-
+    "byeExtraPrompt": "বাই হিসেবে কত রান দৌড়েছে?",
+    "endInningsConfirm": "এই ইনিংস এখনই শেষ হবে। এটি আর ফেরানো যাবে না।",
+    "endInningsFailed": "ইনিংস শেষ করা যায়নি",
+    "matchNotFound": "এই ম্যাচটি খুঁজে পাওয়া যায়নি",
+    "overs": "ওভার",
+    "recordFailed": "বলটি রেকর্ড করা যায়নি",
+    "startFailed": "ম্যাচ শুরু করা যায়নি",
+    "target": "লক্ষ্য",
+    "undoFailed": "শেষ বলটি ফেরানো যায়নি",
+    "replacePlayer": "খেলোয়াড় বদল",
+    "replacePlayerHelp": "কেউ চোট পেলে বা খেলা চালিয়ে যেতে না পারলে এটি ব্যবহার করুন।",
+    "replaceChooseTeam": "কোন দল?",
+    "replaceChoosePlayer": "কে খেলতে পারছেন না?",
+    "replaceChooseIn": "কে নামছেন?",
+    "replaceNoBench": "এই দলে আর কোনো নিবন্ধিত খেলোয়াড় নেই। আগে দলে খেলোয়াড় যোগ করুন।",
+    "replaceConfirm": "{{out}}-এর জায়গায় নামছেন {{in}}।",
+    "replaceAtCrease": "ক্রিজে",
+    "replaceBowling": "বোলিং করছেন",
+    "replaceAtCreaseHelp": "তিনি নটআউট হয়ে উঠে যাবেন, উইকেট গোনা হবে না। তাঁর রান স্কোরকার্ডে থাকবে। তারপর নতুন ব্যাটার বাছতে হবে।",
+    "replaceBowlingHelp": "তাঁর এ পর্যন্ত করা ওভার স্কোরকার্ডে থাকবে। তারপর ওভারের বাকি বল কে করবেন তা বাছতে হবে।",
+    "replaceSubmit": "খেলোয়াড় বদল করুন",
+    "replaceBack": "পিছনে",
+    "replaceDone": "খেলোয়াড় বদল হয়েছে",
+    "replaceFailed": "খেলোয়াড় বদল করা যায়নি",
+    "replacements": "বদলি",
+    "replacedFor": "{{out}}-এর জায়গায় {{in}}",
+    "needMinPlayers": "প্রতিটি দলে কমপক্ষে {{count}} জন খেলোয়াড় লাগবে",
+    "fewerThanFull": "৯ জনের কম খেলোয়াড়: এই দল তার খেলোয়াড়ের সংখ্যার চেয়ে এক উইকেট কমে অল-আউট হবে।",
+    "ballNotConfirmed": "শেষ বলটি নিশ্চিত হয়নি। “আবার চেষ্টা” চাপুন। বলটি দুইবার গোনা হবে না।",
+    "retryBall": "আবার চেষ্টা"
   },
   "fixtures": {
     "seoDescription": "SPPL-এর সব ম্যাচের সময়সূচি ও ফিক্সচার।",
@@ -459,10 +608,9 @@
   "srShort": "SR",
   "maidensShort": "মে",
   "wicketsShort": "উই",
-  "economyShort": "ইকো"
-
-
-},
+  "economyShort": "ইকো",
+    "retiredHurt": "চোটে অবসর"
+  },
   "table": {
     "caption": "পয়েন্ট টেবিল",
     "team": "দল",
@@ -580,5 +728,35 @@
   },
   "language": {
     "switch": "ভাষা পরিবর্তন"
+  },
+  "news": {
+    "seoDescription": "টুর্নামেন্টের ম্যাচ রিপোর্ট, ঘোষণা ও খবর",
+    "subtitle": "{{season}}-এর খবর",
+    "emptyTitle": "এখনো কোনো সংবাদ নেই",
+    "emptyBody": "ম্যাচের খবর ও আপডেটের জন্য শীঘ্রই আবার দেখুন।",
+    "readMore": "আরও পড়ুন",
+    "backToNews": "সব সংবাদ",
+    "notFound": "এই সংবাদটি খুঁজে পাওয়া যায়নি",
+    "newer": "নতুন",
+    "older": "পুরনো"
+  },
+  "sponsors": {
+    "seoDescription": "যাঁদের সহযোগিতায় টুর্নামেন্ট সম্ভব হয়েছে",
+    "subtitle": "{{season}}-এর সহযোগীরা",
+    "emptyTitle": "এখনো কোনো স্পনসর নেই",
+    "emptyBody": "আমাদের স্পনসররা শীঘ্রই এখানে দেখা যাবে।",
+    "visit": "ওয়েবসাইট দেখুন",
+    "tierTitle": "টাইটেল স্পনসর",
+    "tierPlatinum": "প্লাটিনাম",
+    "tierGold": "গোল্ড",
+    "tierPartner": "পার্টনার"
+  },
+  "videos": {
+    "seoDescription": "ম্যাচের ভিডিও ও হাইলাইটস",
+    "subtitle": "{{season}}-এর ভিডিও",
+    "emptyTitle": "এখনো কোনো ভিডিও নেই",
+    "emptyBody": "ম্যাচের ভিডিও শীঘ্রই এখানে দেখা যাবে।",
+    "play": "চালান",
+    "openLink": "ভিডিও দেখুন"
   }
 }

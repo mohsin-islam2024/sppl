@@ -9,4 +9,4 @@ Disallow: /login
 Disallow: /register
 Disallow: /forgot-password
 
-Sitemap: [sppl.netlify.app](https://sppl.netlify.app/sitemap.xml)
+Sitemap: https://sppl.netlify.app/sitemap.xml

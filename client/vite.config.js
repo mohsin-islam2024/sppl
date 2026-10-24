@@ -80,7 +80,7 @@ export default defineConfig({
     proxy: {
       // Local development talks to the Express server without CORS friction.
       "/api": {
-        target: "[localhost](http://localhost:5000)",
+        target: "http://localhost:5000",
         changeOrigin: true,
       },
     },

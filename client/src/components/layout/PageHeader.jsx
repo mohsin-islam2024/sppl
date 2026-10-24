@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useActiveSeason } from '../../hooks/useActiveSeason.js';
 import SeasonSwitcher from '../season/SeasonSwitcher.jsx';
+import { toBengaliDigits } from '../../utils/format.js';
 
 /**
  * Season-aware page header.
@@ -61,7 +62,7 @@ export default function PageHeader({
               </h1>
               {season && (
                 <span className="badge bg-brand/15 text-brand-light">
-                  {season.shortName} {season.seasonNo} · {season.year}
+                  {season.shortName} {toBengaliDigits(season.seasonNo)} · {toBengaliDigits(season.year)}
                 </span>
               )}
             </div>
@@ -81,8 +82,8 @@ export default function PageHeader({
             </span>
             <p className="text-sm text-content-secondary">
               {t('season.archiveNotice', {
-                season: `${season.shortName} ${season.seasonNo}`,
-                year: season.year,
+                season: `${season.shortName} ${toBengaliDigits(season.seasonNo)}`,
+                year: toBengaliDigits(season.year),
               })}
             </p>
           </div>
@@ -92,7 +93,7 @@ export default function PageHeader({
           <div className="mt-5 flex flex-wrap items-center gap-3 rounded-lg border border-gold/30 bg-gold/10 px-3.5 py-3">
             <span className="badge bg-gold/20 text-gold-dark">{t('season.upcomingBadge')}</span>
             <p className="text-sm text-content-secondary">
-              {t('season.noDatesNotice', { season: `${season.shortName} ${season.seasonNo}` })}
+              {t('season.noDatesNotice', { season: `${season.shortName} ${toBengaliDigits(season.seasonNo)}` })}
             </p>
           </div>
         )}

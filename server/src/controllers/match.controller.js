@@ -115,9 +115,29 @@ export const getMatch = asyncHandler(async (req, res) => {
 
   const scorecard = await buildScorecard(match);
 
+  // Shown on the match page so nobody has to ask afterwards who came in for whom.
+  const swapIds = (match.substitutions ?? []).flatMap((entry) => [
+    entry.outPlayerId,
+    entry.inPlayerId,
+  ]);
+  const swapPlayers = swapIds.length
+    ? await Player.find({ _id: { $in: swapIds } })
+        .select("fullName jerseyName")
+        .lean()
+    : [];
+  const swapName = new Map(
+    swapPlayers.map((player) => [String(player._id), player.jerseyName || player.fullName]),
+  );
+  const substitutions = (match.substitutions ?? []).map((entry) => ({
+    teamId: entry.teamId,
+    out: swapName.get(String(entry.outPlayerId)) ?? "",
+    in: swapName.get(String(entry.inPlayerId)) ?? "",
+  }));
+
   res.status(200).json(
     ok({
       ...toMatchCard(match),
+      substitutions,
       toss: match.toss?.winnerTeamId
         ? {
             winnerTeamId: match.toss.winnerTeamId,
@@ -329,6 +349,8 @@ export async function buildScorecard(match) {
             ? round((line.runs / line.balls) * 100, 2)
             : null,
         isOut: Boolean(line.isOut),
+        // Left injured and was replaced: not a dismissal, so the card says so.
+        retiredHurt: Boolean(line.retiredHurt),
         dismissalType: line.dismissalType ?? null,
         dismissedBy: line.dismissedByPlayerId
           ? playerChip(line.dismissedByPlayerId)

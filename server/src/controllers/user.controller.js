@@ -16,7 +16,11 @@ export const listUsers = asyncHandler(async (req, res) => {
 
   if (req.query.role) filter.role = req.query.role;
   if (req.query.search) {
-    const term = String(req.query.search).trim();
+    // Escaped: the term is typed by a person, and an unescaped "(" or "*" would
+    // either crash the query or be used to build a catastrophically slow pattern.
+    const term = String(req.query.search)
+      .trim()
+      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     filter.$or = [
       { name: new RegExp(term, "i") },
       { email: new RegExp(term, "i") },
@@ -107,6 +111,30 @@ export const deactivateUser = asyncHandler(async (req, res) => {
   if (!user) throw ApiError.notFound("User not found");
 
   res.status(200).json(ok(user.toJSON(), "Account deactivated"));
+});
+
+/**
+ * PATCH /api/v1/users/:id/active
+ * SUPER_ADMIN only. Switches an account on or off.
+ *
+ * Deactivation alone (DELETE /users/:id) is a one-way door: with no way back, a
+ * mistaken click would lock someone out until a developer edited the database.
+ */
+export const setUserActive = asyncHandler(async (req, res) => {
+  if (String(req.params.id) === String(req.user._id)) {
+    throw ApiError.badRequest("You cannot change your own account status");
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.params.id,
+    { active: req.body.active },
+    { new: true },
+  );
+  if (!user) throw ApiError.notFound("User not found");
+
+  res
+    .status(200)
+    .json(ok(user.toJSON(), req.body.active ? "Account activated" : "Account deactivated"));
 });
 
 export const ROLE_OPTIONS = Object.values(ROLES);

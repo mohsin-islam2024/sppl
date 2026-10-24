@@ -13,11 +13,22 @@ const standardOptions = {
   legacyHeaders: false,
 };
 
-/** Broad limit for everything: 300 requests / 5 minutes / IP. */
+/**
+ * Broad limit for the public API: 1200 requests / 5 minutes / IP.
+ *
+ * The limit is per IP address, and at a ground the audience shares one: the venue's
+ * wifi, or a mobile carrier that puts many phones behind one address. Fifty people
+ * with a live match open easily exceed a few hundred requests in five minutes, and
+ * when the shared budget runs out EVERYONE on that address is refused, the scorer
+ * included. So scoring is excluded below, and the budget itself is sized for a crowd.
+ */
 export const globalLimiter = rateLimit({
   ...standardOptions,
   windowMs: 5 * 60 * 1000,
-  max: 300,
+  max: 1200,
+  // Scoring has its own limiter (scoringLimiter). It must not also draw on, or be
+  // refused by, the budget the spectators are using up.
+  skip: (req) => req.originalUrl.startsWith("/api/v1/scoring"),
   message: { success: false, message: "Too many requests, please slow down." },
 });
 
@@ -33,9 +44,13 @@ export const writeLimiter = rateLimit({
 });
 
 /**
- * Ball submission gets its own budget: a 10-over innings is ~60 legal balls per
- * side, so 600 per 10 minutes comfortably covers two innings plus corrections,
- * while still stopping a runaway retry loop.
+ * Everything a scorer does gets its own budget: balls, undo, choosing batters and
+ * bowlers, ending an innings, replacing a player. A 10-over innings is ~60 legal balls
+ * per side plus a change of bowler every over and a new batter at every wicket, so 600
+ * per 10 minutes comfortably covers two innings plus corrections, while still stopping
+ * a runaway retry loop. (Only balls used to draw on this. The rest shared the 60 / 15
+ * minutes meant for admin edits, which a busy innings plus an admin editing in another
+ * tab could exhaust.)
  */
 export const scoringLimiter = rateLimit({
   ...standardOptions,

@@ -16,6 +16,9 @@ import { cn } from '../../utils/cn.js';
  * The opening pair and first bowler are chosen HERE rather than on the scoring
  * screen, because until they are set there is nothing to score.
  */
+/** The fewest players a side may start with. The server enforces the same floor. */
+const MIN_PLAYERS = 5;
+
 export default function StartMatchForm({ match, onStart, onDone }) {
   const { t } = useTranslation();
 
@@ -100,9 +103,12 @@ export default function StartMatchForm({ match, onStart, onDone }) {
       playerIds: selectedFor(teamIdOf(team)),
     }));
 
-    const short = payload.find((squad) => squad.playerIds.length !== 9);
+    // A side may be short of its usual nine (someone did not turn up), down to a floor.
+    // The upper limit is the season's own rule and is checked by the server, which
+    // names the number in its reply, so it is not hard-coded here a second time.
+    const short = payload.find((squad) => squad.playerIds.length < MIN_PLAYERS);
     if (short) {
-      setError(t('scoring.needNinePerSide'));
+      setError(t('scoring.needMinPlayers', { count: toBengaliDigits(MIN_PLAYERS) }));
       return;
     }
 
@@ -125,7 +131,7 @@ export default function StartMatchForm({ match, onStart, onDone }) {
     }
   };
 
-  const playerLabel = (player) => `#${player.jerseyNo} ${player.jerseyName || player.fullName}`;
+  const playerLabel = (player) => `#${toBengaliDigits(player.jerseyNo)} ${player.jerseyName || player.fullName}`;
 
   if (selectorsQuery.isLoading) {
     return (
@@ -202,12 +208,19 @@ export default function StartMatchForm({ match, onStart, onDone }) {
                   <span
                     className={cn(
                       'tabular text-xs font-semibold',
-                      chosen.length === 9 ? 'text-win' : 'text-gold-dark',
+                      chosen.length >= 9
+                        ? 'text-win'
+                        : chosen.length >= MIN_PLAYERS
+                          ? 'text-gold-dark'
+                          : 'text-live-light',
                     )}
                   >
                     {t('scoring.selectedCount', { count: toBengaliDigits(chosen.length) })}
                   </span>
                 </div>
+                {chosen.length >= MIN_PLAYERS && chosen.length < 9 && (
+                  <p className="mt-1 text-2xs text-content-muted">{t('scoring.fewerThanFull')}</p>
+                )}
 
                 {roster.length === 0 ? (
                   <p className="mt-2 text-sm text-content-muted">{t('scoring.noRoster')}</p>

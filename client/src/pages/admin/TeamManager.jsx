@@ -100,7 +100,7 @@ export default function TeamManager() {
       .filter((player) => String(player.teamId) === String(teamId))
       .map((player) => ({
         value: player._id ?? player.id,
-        label: `#${player.jerseyNo} ${player.jerseyName || player.fullName}`,
+        label: `#${toBengaliDigits(player.jerseyNo)} ${player.jerseyName || player.fullName}`,
       }));
 
   const openCreate = () => {

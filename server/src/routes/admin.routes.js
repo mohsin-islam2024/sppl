@@ -3,6 +3,12 @@ import * as admin from "../controllers/admin.controller.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
 import { writeLimiter } from "../middleware/rateLimit.js";
+import contentAdminRoutes from "./adminContent.routes.js";
+import {
+  recalculatePoints,
+  generateFinal,
+} from "../controllers/adminPoints.controller.js";
+import { generateFinalSchema } from "@sppl/shared/validation/adminSchemas.js";
 import { ROLES } from "@sppl/shared/constants/roles.js";
 import {
   createSeasonSchema,
@@ -97,5 +103,17 @@ router.patch(
   admin.updateMatch,
 );
 router.delete("/matches/:id", writeLimiter, admin.deleteMatch);
+
+/* Points table: rebuild standings from completed matches */
+router.post("/points/recalculate", writeLimiter, recalculatePoints);
+router.post(
+  "/matches/generate-final",
+  writeLimiter,
+  validate({ body: generateFinalSchema }),
+  generateFinal,
+);
+
+/* Content: news, gallery, sponsors, awards, announcements, videos */
+router.use("/", contentAdminRoutes);
 
 export default router;

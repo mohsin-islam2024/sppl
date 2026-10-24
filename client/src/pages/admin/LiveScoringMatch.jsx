@@ -8,6 +8,8 @@ import StartMatchForm from '../../components/admin/StartMatchForm.jsx';
 import WicketSheet from '../../components/admin/WicketSheet.jsx';
 import ExtraRunSheet from '../../components/admin/ExtraRunSheet.jsx';
 import PlayerPickerSheet from '../../components/admin/PlayerPickerSheet.jsx';
+import ReplacePlayerSheet from '../../components/admin/ReplacePlayerSheet.jsx';
+import { isConnectionProblem, newClientId } from '../../utils/id.js';
 import { ErrorState } from '../../components/common/Skeleton.jsx';
 import {
   useScoringContext,
@@ -53,6 +55,10 @@ export default function LiveScoringMatch() {
   const [extraSheet, setExtraSheet] = useState(null);
   const [picker, setPicker] = useState(null);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  // A ball whose outcome is unknown (the connection dropped). It is kept, with its id,
+  // until the server confirms it, so the scorer cannot enter the next ball on top of it.
+  const [pendingBall, setPendingBall] = useState(null);
   const [banner, setBanner] = useState(null);
 
   const recordBall = useRecordBall(matchId);
@@ -75,6 +81,7 @@ export default function LiveScoringMatch() {
   const canScore =
     match?.status === 'LIVE' &&
     !innings?.isComplete &&
+    !pendingBall &&
     Boolean(strikerLine) &&
     Boolean(bowlerLine);
 
@@ -89,6 +96,28 @@ export default function LiveScoringMatch() {
           (line) => String(line.playerId) === String(player.id ?? player._id),
         )?.hasBatted,
     );
+  }, [match, innings]);
+
+  /**
+   * Who can be named striker: batters yet to bat, and batters already at the crease.
+   *
+   * Without the second group a batter who has batted but lost the strike marker could
+   * never be chosen again, because the plain list hides anyone who has batted. That is
+   * how a match got stuck with two batters at the crease and nobody on strike. The
+   * current striker and non-striker are still greyed out, so in a healthy innings the
+   * picker behaves as before.
+   */
+  const strikerCandidates = useMemo(() => {
+    const squad = match?.playingSquads?.find(
+      (entry) => String(entry.teamId) === String(innings?.battingTeamId),
+    );
+    const lines = innings?.batting ?? [];
+    return (squad?.playerIds ?? []).filter((player) => {
+      const line = lines.find(
+        (entry) => String(entry.playerId) === String(player.id ?? player._id),
+      );
+      return !line?.hasBatted || !line.isOut;
+    });
   }, [match, innings]);
 
   /**
@@ -107,24 +136,65 @@ export default function LiveScoringMatch() {
 
     if (!batterId || !nonStrikerId || !bowlerId) {
       setBanner({ tone: 'error', text: t('scoring.creaseIncomplete') });
-      return;
+      return false;
     }
 
-    try {
-      await recordBall.mutateAsync({
-        matchId,
-        innings: match?.currentInnings ?? 0,
-        batterId,
-        nonStrikerId,
-        bowlerId,
-        // The striker faces the ball, so the striker is who is out unless the sheet
-        // named someone else — a run out can dismiss the non-striker.
-        dismissedPlayerId: spec.dismissedPlayerId ?? batterId,
-        ...spec,
-      });
-    } catch (err) {
-      setBanner({ tone: 'error', text: err?.message ?? t('scoring.recordFailed') });
+    return submitBall({
+      // One id per delivery, made here and re-sent unchanged on any retry. The server
+      // recognises it, so a ball whose reply was lost is never counted twice.
+      clientBallId: newClientId(),
+      matchId,
+      innings: match?.currentInnings ?? 0,
+      batterId,
+      nonStrikerId,
+      bowlerId,
+      // The striker faces the ball, so the striker is who is out unless the sheet
+      // named someone else — a run out can dismiss the non-striker.
+      dismissedPlayerId: spec.dismissedPlayerId ?? batterId,
+      ...spec,
+    });
+  };
+
+  /**
+   * Send a delivery, retrying by itself when the connection is the problem.
+   *
+   * Three attempts with a short pause, all carrying the same id. If the connection is
+   * still bad the ball is parked in `pendingBall` and scoring is held until the scorer
+   * presses Retry, which sends it AGAIN with the same id. Tapping the run button a
+   * second time would be a different ball; that is the mistake this is here to prevent.
+   *
+   * Resolves true when the server has the ball (including "already had it").
+   */
+  const submitBall = async (payload) => {
+    const pauses = [0, 1200, 3000];
+    let failure = null;
+
+    for (const pause of pauses) {
+      if (pause) await new Promise((resolve) => setTimeout(resolve, pause));
+      try {
+        await recordBall.mutateAsync(payload);
+        setPendingBall(null);
+        return true;
+      } catch (err) {
+        failure = err;
+        if (!isConnectionProblem(err)) break;
+      }
     }
+
+    if (isConnectionProblem(failure)) {
+      setPendingBall(payload);
+      setBanner({ tone: 'error', text: t('scoring.ballNotConfirmed') });
+    } else {
+      setPendingBall(null);
+      setBanner({ tone: 'error', text: failure?.message ?? t('scoring.recordFailed') });
+    }
+    return false;
+  };
+
+  const retryPendingBall = async () => {
+    if (!pendingBall) return;
+    setBanner(null);
+    await submitBall(pendingBall);
   };
 
   const onUndo = async () => {
@@ -283,6 +353,25 @@ export default function LiveScoringMatch() {
           />
         </div>
 
+        {/* Who has been replaced, so the scorer and an admin watching agree on the squads */}
+        {(data?.substitutions ?? []).length > 0 && (
+          <section className="mt-4 rounded-lg bg-surface-sunken px-3.5 py-3">
+            <h2 className="text-2xs font-semibold uppercase tracking-widest text-content-muted">
+              {t('scoring.replacements')}
+            </h2>
+            <ul className="mt-1.5 space-y-0.5 text-xs text-content-secondary">
+              {data.substitutions.map((entry, index) => (
+                <li key={index}>
+                  {t('scoring.replacedFor', {
+                    in: entry.in?.jerseyName || entry.in?.fullName || '',
+                    out: entry.out?.jerseyName || entry.out?.fullName || '',
+                  })}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {/* Recent balls */}
         {recentBalls.length > 0 && (
           <section className="mt-4 card p-4">
@@ -392,7 +481,24 @@ export default function LiveScoringMatch() {
               </button>
             </div>
 
-            {banner && (
+            {pendingBall && (
+              <div
+                role="alert"
+                className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-gold/15 px-3 py-2.5 text-xs font-semibold text-gold-dark"
+              >
+                <span>{t('scoring.ballNotConfirmed')}</span>
+                <button
+                  type="button"
+                  onClick={retryPendingBall}
+                  disabled={recordBall.isPending}
+                  className="shrink-0 rounded-pill bg-brand px-3.5 py-1.5 text-xs font-bold text-white transition hover:bg-brand-dark disabled:opacity-60"
+                >
+                  {recordBall.isPending ? t('common.loading') : t('scoring.retryBall')}
+                </button>
+              </div>
+            )}
+
+            {banner && !pendingBall && (
               <div
                 role="alert"
                 className={cn(
@@ -404,6 +510,17 @@ export default function LiveScoringMatch() {
               >
                 {banner.text}
               </div>
+            )}
+
+            {/* Available even when the crease is incomplete: that is exactly when it is needed. */}
+            {match.status === 'LIVE' && (
+              <button
+                type="button"
+                onClick={() => setReplaceOpen(true)}
+                className="mt-2 w-full rounded-lg py-2 text-2xs font-semibold text-content-muted transition hover:bg-surface-sunken"
+              >
+                ⇄ {t('scoring.replacePlayer')}
+              </button>
             )}
 
             {canScore && (
@@ -419,6 +536,26 @@ export default function LiveScoringMatch() {
         </div>
       </div>
 
+      {/* Replace an injured player */}
+      <ReplacePlayerSheet
+        open={replaceOpen}
+        onClose={() => setReplaceOpen(false)}
+        matchId={matchId}
+        match={match}
+        strikerId={strikerLine?.playerId}
+        nonStrikerId={nonStrikerLine?.playerId}
+        bowlerId={bowlerLine?.playerId}
+        substitutions={data?.substitutions ?? []}
+        onDone={(result) => {
+          setReplaceOpen(false);
+          setBanner({ tone: 'success', text: t('scoring.replaceDone') });
+          // What happens next is the same as after a wicket or a change of bowler: the
+          // slot that was left empty has to be filled before scoring can continue.
+          if (result.retiredAtCrease) setPicker(result.wasStriker ? 'striker' : 'nonStriker');
+          else if (result.replacedBowler) setPicker('bowler');
+        }}
+      />
+
       {/* Wicket */}
       <WicketSheet
         open={wicketOpen}
@@ -428,8 +565,22 @@ export default function LiveScoringMatch() {
         bowlingSquad={formSquadFor(match, innings?.bowlingTeamId)}
         onConfirm={async (spec) => {
           setWicketOpen(false);
-          await sendBall(spec);
-          setPicker('striker');
+          const recorded = await sendBall(spec);
+          if (!recorded) return;
+
+          // Where the incoming batter stands depends on what the wicket did to the
+          // strike, which only the server knows. If the wicket fell on the LAST ball
+          // of an over, the ends have already changed, so the batter who was at the
+          // other end is now on strike and the newcomer belongs at the non-striker's
+          // end. Always opening the striker's list put him on strike and took the
+          // strike from a batter who had earned it. A wicket mid-over, or a run out at
+          // the non-striker's end, falls out of the same rule: fill whichever end is
+          // empty.
+          const { data: fresh } = await refetch();
+          if (!fresh || fresh.match?.status !== 'LIVE' || fresh.currentInnings?.isComplete) return;
+
+          if (!fresh.striker) setPicker('striker');
+          else if (!fresh.nonStriker) setPicker('nonStriker');
         }}
       />
 
@@ -448,7 +599,7 @@ export default function LiveScoringMatch() {
       <PlayerPickerSheet
         open={picker === 'striker'}
         title={t('scoring.chooseStriker')}
-        players={availableBatters}
+        players={strikerCandidates}
         unavailable={[nonStrikerLine?.playerId, strikerLine?.playerId]}
         selectedId={strikerLine?.playerId}
         onPick={(id) => {

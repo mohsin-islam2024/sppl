@@ -112,12 +112,44 @@ export function useSetPlayers(matchId) {
   });
 }
 
+/**
+ * Replace a player who cannot continue with another player of the same team.
+ *
+ * `retry: false` for the same reason as a ball: a retried substitution that had
+ * already gone through would be rejected ("already in a playing squad"), which reads
+ * as a failure when the swap actually happened.
+ *
+ * onSuccess returns the refetch promise, so the mutation only resolves once the
+ * console has the new squad. The caller opens the batter picker straight afterwards,
+ * and that picker must already contain the player who just came in.
+ */
+export function useSubstitutePlayer(matchId) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (change) => {
+      const { data } = await api.post(`/scoring/${matchId}/substitute`, change);
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["matches"] });
+      return queryClient.invalidateQueries({ queryKey: scoringKeys.context(matchId) });
+    },
+    retry: false,
+  });
+}
+
 /** Remove the last delivery and rebuild the innings. */
 export function useUndoBall(matchId) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (innings) => {
+    // The console passes { innings }, an older caller passed the bare number. Wrapping
+    // an object a second time sent { innings: { innings: 0 } }, which the server could
+    // not read as an innings: the "Invalid value for innings" the scorer saw.
+    mutationFn: async (argument) => {
+      const innings =
+        argument !== null && typeof argument === 'object' ? argument.innings : argument;
       const { data } = await api.post(`/scoring/${matchId}/undo`, { innings });
       return data.data;
     },

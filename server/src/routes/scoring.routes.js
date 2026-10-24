@@ -3,12 +3,16 @@ import * as scoring from "../controllers/scoring.controller.js";
 import { requireAuth, requireRole } from "../middleware/auth.js";
 import { requireAssigned } from "../middleware/requireAssigned.js";
 import { validate } from "../middleware/validate.js";
-import { scoringLimiter, writeLimiter } from "../middleware/rateLimit.js";
+import { scoringLimiter } from "../middleware/rateLimit.js";
 import { Match } from "../models/Match.js";
 import {
   recordBallSchema,
   undoBallSchema,
 } from "@sppl/shared/validation/schemas.js";
+import {
+  recordSuperOverSchema,
+  substitutePlayerSchema,
+} from "@sppl/shared/validation/adminSchemas.js";
 import { ROLES, SCORING_ROLES } from "@sppl/shared/constants/roles.js";
 
 const router = Router();
@@ -49,7 +53,7 @@ router.get("/:matchId", scoring.getScoringContext);
 router.get("/:matchId/squad/:teamId", scoring.getSquad);
 
 /** Starting a match claims it for the caller. */
-router.post("/:matchId/start", writeLimiter, scoring.startMatch);
+router.post("/:matchId/start", scoringLimiter, scoring.startMatch);
 
 /**
  * The hot path. The scoring limiter allows 600 per 10 minutes, which is two full
@@ -66,18 +70,32 @@ router.post(
 
 router.post(
   "/:matchId/players",
-  writeLimiter,
+  scoringLimiter,
   assignedToMatch,
   scoring.setPlayers,
 );
 
-router.post("/:matchId/undo", writeLimiter, assignedToMatch, scoring.undoBall);
+router.post("/:matchId/undo", scoringLimiter, assignedToMatch, scoring.undoBall);
 router.post(
   "/:matchId/end-innings",
-  writeLimiter,
+  scoringLimiter,
   assignedToMatch,
   scoring.endInnings,
 );
-router.patch("/:matchId/result", writeLimiter, scoring.setResult);
+router.post(
+  "/:matchId/substitute",
+  scoringLimiter,
+  assignedToMatch,
+  validate({ body: substitutePlayerSchema }),
+  scoring.substitutePlayer,
+);
+router.post(
+  "/:matchId/super-over",
+  scoringLimiter,
+  assignedToMatch,
+  validate({ body: recordSuperOverSchema }),
+  scoring.recordSuperOver,
+);
+router.patch("/:matchId/result", scoringLimiter, scoring.setResult);
 
 export default router;

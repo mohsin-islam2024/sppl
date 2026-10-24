@@ -184,6 +184,8 @@ export function toMatchCard(match) {
     status: match.status,
     startAt: match.startAt,
     venue: match.venue ?? "",
+    // null means the season's own overs apply.
+    oversPerInnings: match.oversPerInnings ?? null,
     teamA: toTeamChip(match.teamAId),
     teamB: toTeamChip(match.teamBId),
     // Summary figures only. The full innings tree lives behind /matches/:id/scorecard.

@@ -33,6 +33,13 @@ const Stats = lazy(() => import('../pages/public/Stats.jsx'));
 const Gallery = lazy(() => import('../pages/public/Gallery.jsx'));
 const Rules = lazy(() => import('../pages/public/Rules.jsx'));
 const Awards = lazy(() => import('../pages/public/Awards.jsx'));
+const News = lazy(() => import('../pages/public/News.jsx'));
+const NewsArticle = lazy(() => import('../pages/public/NewsArticle.jsx'));
+const Sponsors = lazy(() => import('../pages/public/Sponsors.jsx'));
+const Videos = lazy(() => import('../pages/public/Videos.jsx'));
+const VideoManager = lazy(() => import('../pages/admin/VideoManager.jsx'));
+const PointsManager = lazy(() => import('../pages/admin/PointsManager.jsx'));
+const UserManager = lazy(() => import('../pages/admin/UserManager.jsx'));
 const NotFound = lazy(() => import('../pages/public/NotFound.jsx'));
 const Forbidden = lazy(() => import('../pages/public/Forbidden.jsx'));
 
@@ -47,6 +54,12 @@ const PlayerManager = lazy(() => import('../pages/admin/PlayerManager.jsx'));
 const MatchManager = lazy(() => import('../pages/admin/MatchManager.jsx'));
 const LiveScoring = lazy(() => import('../pages/admin/LiveScoring.jsx'));
 const LiveScoringMatch = lazy(() => import('../pages/admin/LiveScoringMatch.jsx'));
+const SuperOver = lazy(() => import('../pages/admin/SuperOver.jsx'));
+const NewsManager = lazy(() => import('../pages/admin/NewsManager.jsx'));
+const GalleryManager = lazy(() => import('../pages/admin/GalleryManager.jsx'));
+const SponsorManager = lazy(() => import('../pages/admin/SponsorManager.jsx'));
+const AwardManager = lazy(() => import('../pages/admin/AwardManager.jsx'));
+const AnnouncementManager = lazy(() => import('../pages/admin/AnnouncementManager.jsx'));
 
 export default function AppRoutes() {
   return (
@@ -69,6 +82,10 @@ export default function AppRoutes() {
             <Route path="gallery" element={<Gallery />} />
             <Route path="rules" element={<Rules />} />
             <Route path="awards" element={<Awards />} />
+            <Route path="news" element={<News />} />
+            <Route path="news/:slug" element={<NewsArticle />} />
+            <Route path="sponsors" element={<Sponsors />} />
+            <Route path="videos" element={<Videos />} />
 
             <Route path="login" element={<Login />} />
             <Route path="register" element={<Register />} />
@@ -90,6 +107,7 @@ export default function AppRoutes() {
               >
                 <Route path="live-scoring" element={<LiveScoring />} />
                 <Route path="live-scoring/:matchId" element={<LiveScoringMatch />} />
+                <Route path="live-scoring/:matchId/super-over" element={<SuperOver />} />
               </Route>
 
               {/* Admin and above — management screens */}
@@ -98,17 +116,18 @@ export default function AppRoutes() {
                 <Route path="teams" element={<TeamManager />} />
                 <Route path="players" element={<PlayerManager />} />
                 <Route path="matches" element={<MatchManager />} />
-                <Route path="points" element={<AdminDashboard />} />
-                <Route path="news" element={<AdminDashboard />} />
-                <Route path="gallery" element={<AdminDashboard />} />
-                <Route path="sponsors" element={<AdminDashboard />} />
-                <Route path="awards" element={<AdminDashboard />} />
-                <Route path="announcements" element={<AdminDashboard />} />
+                <Route path="points" element={<PointsManager />} />
+                <Route path="news" element={<NewsManager />} />
+                <Route path="gallery" element={<GalleryManager />} />
+                <Route path="sponsors" element={<SponsorManager />} />
+                <Route path="awards" element={<AwardManager />} />
+                <Route path="announcements" element={<AnnouncementManager />} />
+                <Route path="videos" element={<VideoManager />} />
               </Route>
 
               {/* Super admin only */}
               <Route element={<RoleRoute minimum={ROLES.SUPER_ADMIN} />}>
-                <Route path="users" element={<AdminDashboard />} />
+                <Route path="users" element={<UserManager />} />
               </Route>
             </Route>
           </Route>

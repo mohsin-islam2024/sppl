@@ -165,8 +165,19 @@ export function advanceBallCounter(ballsBefore, extraType) {
 
 /**
  * Whether the delivery just recorded completes the over.
+ *
+ * Only a LEGAL delivery can. A wide or a no-ball does not advance the ball count, so
+ * when one is bowled as the first ball of an over the count still sits on the previous
+ * over's last ball (6, 12, ...). Judging by the count alone then calls that over
+ * "complete" again: the strike swapped, the bowler was cleared, and the maiden
+ * bookkeeping reset, all before a single legal ball of the new over had been bowled.
+ *
+ * @param {number} legalBalls  legal balls in the innings AFTER this delivery
+ * @param {number} [ballsPerOver]
+ * @param {string|null} [extraType]  the delivery's extra, if any
  */
-export function completesOver(legalBalls, ballsPerOver = 6) {
+export function completesOver(legalBalls, ballsPerOver = 6, extraType = null) {
+  if (isNonLegal(extraType)) return false;
   return legalBalls > 0 && legalBalls % ballsPerOver === 0;
 }
 

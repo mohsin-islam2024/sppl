@@ -37,7 +37,7 @@ export default function Rules() {
         title={t('rules.title')}
         subtitle={
           season
-            ? t('rules.subtitle', { season: `${season.shortName} ${season.seasonNo}` })
+            ? t('rules.subtitle', { season: `${season.shortName} ${toBengaliDigits(season.seasonNo)}` })
             : undefined
         }
       />
@@ -71,7 +71,7 @@ export default function Rules() {
               ) : (
                 <p className="mt-3 text-sm text-content-muted">
                   {t('rules.datesPending', {
-                    season: season ? `${season.shortName} ${season.seasonNo}` : '',
+                    season: season ? `${season.shortName} ${toBengaliDigits(season.seasonNo)}` : '',
                   })}
                 </p>
               )}
