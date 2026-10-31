@@ -1014,6 +1014,16 @@ function swapStrike(innings) {
   other.isStriker = true;
 }
 
+/**
+ * Also a NAMED export. The controllers import this module as a namespace
+ * (`import * as scoringService`) and call `scoringService.recomputeStats(...)`, but the
+ * function existed only inside the default export below, so every such call threw
+ * "scoringService.recomputeStats is not a function". That broke ending the second
+ * innings by hand ("End innings") and the manual result endpoint, after the match had
+ * already been saved, so the scorer saw an error for something that had half worked.
+ */
+export { recomputeSeasonStats as recomputeStats };
+
 export default {
   recordBall,
   undoLastBall,
